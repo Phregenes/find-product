@@ -1,4 +1,4 @@
-import { chromium, Browser } from 'playwright'
+import { chromium as playwrightCore, Browser } from 'playwright-core'
 
 export interface Product {
   id: string
@@ -21,12 +21,26 @@ export interface Product {
 
 let browser: Browser | null = null
 
+const EXTRA_ARGS = ['--disable-blink-features=AutomationControlled', '--no-sandbox', '--disable-setuid-sandbox']
+
 async function getBrowser(): Promise<Browser> {
   if (browser && browser.isConnected()) return browser
-  browser = await chromium.launch({
-    headless: true,
-    args: ['--disable-blink-features=AutomationControlled', '--no-sandbox'],
-  })
+
+  // Vercel / AWS Lambda — use @sparticuz/chromium (serverless-compatible binary)
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    const sparticuz = (await import('@sparticuz/chromium')).default
+    const executablePath = await sparticuz.executablePath()
+    browser = await playwrightCore.launch({
+      args: [...sparticuz.args, ...EXTRA_ARGS],
+      executablePath,
+      headless: true,
+    })
+    return browser
+  }
+
+  // Local dev — use playwright's bundled Chromium
+  const { chromium } = await import('playwright')
+  browser = await chromium.launch({ headless: true, args: EXTRA_ARGS })
   return browser
 }
 
