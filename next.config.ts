@@ -10,6 +10,12 @@ const nextConfig: NextConfig = {
     ],
   },
   serverExternalPackages: ['playwright', 'playwright-core', '@sparticuz/chromium', '@sparticuz/chromium-min'],
+  outputFileTracingIncludes: {
+    '/api/search': [
+      './node_modules/playwright-core/**/*',
+      './node_modules/@sparticuz/chromium-min/**/*',
+    ],
+  },
 }
 
 export default nextConfig
