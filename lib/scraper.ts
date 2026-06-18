@@ -49,7 +49,7 @@ async function getBrowser(): Promise<Browser> {
     console.log('[scraper] production env detected, loading @sparticuz/chromium-min...')
     const sparticuz = (await import('@sparticuz/chromium-min')).default
     const chromiumUrl =
-      'https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.tar'
+      'https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.x64.tar'
     console.log('[scraper] downloading chromium from:', chromiumUrl)
     const executablePath = await sparticuz.executablePath(chromiumUrl)
     console.log('[scraper] chromium executable at:', executablePath)
