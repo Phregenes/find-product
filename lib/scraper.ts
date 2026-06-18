@@ -44,12 +44,16 @@ let browser: Browser | null = null
 async function getBrowser(): Promise<Browser> {
   if (browser && browser.isConnected()) return browser
 
-  // Production (Vercel / Lambda) — use @sparticuz/chromium serverless binary
+  // Production (Vercel / Lambda) — use @sparticuz/chromium-min (no bundled binary, downloads at runtime)
   if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
-    const sparticuz = (await import('@sparticuz/chromium')).default
+    const sparticuz = (await import('@sparticuz/chromium-min')).default
+    // chromium-min.executablePath() downloads the binary from GitHub releases to /tmp
+    const executablePath = await sparticuz.executablePath(
+      `https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.tar`,
+    )
     browser = await playwrightCore.launch({
       args: [...sparticuz.args, ...LAUNCH_ARGS],
-      executablePath: await sparticuz.executablePath(),
+      executablePath,
       headless: true,
     })
     return browser
