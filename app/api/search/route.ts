@@ -24,9 +24,10 @@ export async function GET(request: NextRequest) {
       fetchedAt: Date.now(),
     })
   } catch (err) {
-    console.error('[search] error:', err)
+    const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err)
+    console.error('[search] error:', msg)
     return Response.json(
-      { error: 'Falha ao buscar produtos. Tente novamente.' },
+      { error: msg },
       { status: 500 },
     )
   }
