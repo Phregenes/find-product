@@ -543,12 +543,12 @@ export default function MonitorApp() {
         )}
 
         {/* No new products notice */}
-        {!viewState.loading && !viewState.error && viewState.products.length > 0 && viewState.newIds.size === 0 && activeEntry?.lastChecked > 0 && (
+        {!viewState.loading && !viewState.error && viewState.products.length > 0 && viewState.newIds.size === 0 && (activeEntry?.lastChecked ?? 0) > 0 && (
           <div className="mb-4 flex items-center gap-2 rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500 sm:px-4 sm:py-3 sm:text-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
             <svg className="h-3.5 w-3.5 shrink-0 text-green-500 sm:h-4 sm:w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            Sem novidades desde <strong className="ml-1 text-zinc-700 dark:text-zinc-200">{relativeTime(activeEntry.lastChecked, now)}</strong>
+            Sem novidades desde <strong className="ml-1 text-zinc-700 dark:text-zinc-200">{relativeTime(activeEntry?.lastChecked ?? 0, now)}</strong>
           </div>
         )}
 
