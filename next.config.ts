@@ -13,7 +13,8 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     '/api/search': [
       './node_modules/playwright-core/**/*',
-      './node_modules/@sparticuz/chromium-min/**/*',
+      './node_modules/@sparticuz/chromium/bin/**',  // chromium.br + swiftshader.tar.br + fonts + al2023
+      './node_modules/@sparticuz/chromium/build/**',
     ],
   },
 }
