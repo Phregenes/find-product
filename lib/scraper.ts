@@ -30,36 +30,44 @@ const CONDITION_LABEL: Record<Condition, string | null> = {
 
 const PAGE_SIZE = 20
 
+const LAUNCH_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-blink-features=AutomationControlled',
+  '--single-process',
+  '--no-zygote',
+]
+
 let browser: Browser | null = null
 
 async function getBrowser(): Promise<Browser> {
   if (browser && browser.isConnected()) return browser
-  browser = null // reset on reconnect attempt
 
-  // Production (Vercel) — @sparticuz/chromium (full bundle) includes chromium + swiftshader + fonts
-  // outputFileTracingIncludes in next.config.ts ensures all bin files are deployed
+  // Production (Vercel / Lambda) — use @sparticuz/chromium-min (downloads binary at runtime, no bundle bloat)
   if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
-    const chromium = (await import('@sparticuz/chromium')).default
-    // executablePath() extracts chromium + swiftshader + al2023 libs to /tmp
-    const executablePath = await chromium.executablePath()
+    console.log('[scraper] production env detected, loading @sparticuz/chromium-min...')
+    const sparticuz = (await import('@sparticuz/chromium-min')).default
+    const chromiumUrl =
+      'https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.x64.tar'
+    console.log('[scraper] downloading chromium from:', chromiumUrl)
+    const executablePath = await sparticuz.executablePath(chromiumUrl)
+    console.log('[scraper] chromium executable at:', executablePath)
+
     const { chromium: pwCore } = await import('playwright-core')
-    // sparticuz.args includes --headless (old mode); Playwright's headless:true adds --headless=shell
-    // Filter --headless from sparticuz.args and let Playwright manage it via headless:true
-    const args = chromium.args.filter((a: string) => !a.startsWith('--headless'))
     browser = await pwCore.launch({
-      args,
+      args: [...sparticuz.args, ...LAUNCH_ARGS],
       executablePath,
       headless: true,
     })
+    console.log('[scraper] browser launched successfully')
     return browser
   }
 
   // Local dev — use playwright's bundled Chromium
+  console.log('[scraper] local env detected, using playwright bundled chromium')
   const { chromium } = await import('playwright')
-  browser = await chromium.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-  })
+  browser = await chromium.launch({ headless: true, args: LAUNCH_ARGS })
   return browser
 }
 
