@@ -1,4 +1,4 @@
-import type { Browser } from 'playwright-core'
+import type { Page } from 'playwright-core'
 
 export interface Product {
   id: string
@@ -22,53 +22,35 @@ export interface Product {
 export type SortBy = 'relevance' | 'recent'
 export type Condition = 'all' | 'new' | 'used'
 
-const CONDITION_LABEL: Record<Condition, string | null> = {
-  all: null,
-  new: 'Novo',
-  used: 'Usado',
-}
-
 const PAGE_SIZE = 20
 
-const LAUNCH_ARGS = [
-  '--no-sandbox',
-  '--disable-setuid-sandbox',
-  '--disable-dev-shm-usage',
-  '--disable-blink-features=AutomationControlled',
-  '--single-process',
-  '--no-zygote',
-]
+// Navigate to a URL and return how many product items are on the page.
+// ML occasionally serves a transient error page, so callers can retry on 0.
+async function navigateAndCount(browserPage: Page, url: string): Promise<number> {
+  await browserPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+  await browserPage
+    .waitForSelector('li.ui-search-layout__item', { timeout: 6_000 })
+    .catch(() => null)
+  return browserPage.evaluate(() => document.querySelectorAll('li.ui-search-layout__item').length)
+}
 
-let browser: Browser | null = null
-
-async function getBrowser(): Promise<Browser> {
-  if (browser && browser.isConnected()) return browser
-
-  // Production (Vercel / Lambda) — use @sparticuz/chromium-min (downloads binary at runtime, no bundle bloat)
+async function launchBrowser() {
+  // Production (Vercel / Lambda)
   if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
-    console.log('[scraper] production env detected, loading @sparticuz/chromium-min...')
-    const sparticuz = (await import('@sparticuz/chromium-min')).default
-    const chromiumUrl =
-      'https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.x64.tar'
-    console.log('[scraper] downloading chromium from:', chromiumUrl)
-    const executablePath = await sparticuz.executablePath(chromiumUrl)
-    console.log('[scraper] chromium executable at:', executablePath)
-
-    const { chromium: pwCore } = await import('playwright-core')
-    browser = await pwCore.launch({
-      args: [...sparticuz.args, ...LAUNCH_ARGS],
-      executablePath,
-      headless: true,
-    })
-    console.log('[scraper] browser launched successfully')
-    return browser
+    const chromium = (await import('@sparticuz/chromium')).default
+    const executablePath = await chromium.executablePath()
+    const { chromium: pw } = await import('playwright-core')
+    // Filter --headless from sparticuz to avoid conflict with Playwright's headless:true
+    const args = (chromium.args as string[]).filter((a) => !a.startsWith('--headless'))
+    return pw.launch({ args, executablePath, headless: true })
   }
 
   // Local dev — use playwright's bundled Chromium
-  console.log('[scraper] local env detected, using playwright bundled chromium')
   const { chromium } = await import('playwright')
-  browser = await chromium.launch({ headless: true, args: LAUNCH_ARGS })
-  return browser
+  return chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+  })
 }
 
 export async function searchProducts(
@@ -77,50 +59,46 @@ export async function searchProducts(
   page = 1,
   condition: Condition = 'all',
 ): Promise<Product[]> {
-  const b = await getBrowser()
-  const context = await b.newContext({
-    userAgent:
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    locale: 'pt-BR',
-    viewport: { width: 1280, height: 720 },
-  })
-
-  await context.addCookies([
-    {
-      name: '_bm_skipml',
-      value: 'true',
-      domain: '.mercadolivre.com.br',
-      path: '/',
-      expires: Math.floor(Date.now() / 1000) + 300,
-    },
-  ])
-
-  const browserPage = await context.newPage()
+  // Fresh browser per request — avoids stale singleton state between calls
+  const browser = await launchBrowser()
 
   try {
+    const context = await browser.newContext({
+      userAgent:
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      locale: 'pt-BR',
+      viewport: { width: 1280, height: 720 },
+    })
+
+    await context.addCookies([
+      {
+        name: '_bm_skipml',
+        value: 'true',
+        domain: '.mercadolivre.com.br',
+        path: '/',
+        expires: Math.floor(Date.now() / 1000) + 300,
+      },
+    ])
+
+    const browserPage = await context.newPage()
+
     const slug = encodeURIComponent(query)
       .replace(/%20/g, '-')
       .replace(/%[0-9A-F]{2}/gi, '-')
     const sortSuffix = sortBy === 'recent' ? '_OrderId_UFRE' : ''
     const offset = (page - 1) * 48 + 1
     const pageSuffix = page > 1 ? `_Desde_${offset}` : ''
-    const baseUrl = `https://lista.mercadolivre.com.br/${slug}${sortSuffix}${pageSuffix}`
 
-    await browserPage.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-    await browserPage.waitForTimeout(3_000)
+    // ML uses a path prefix for condition filtering: /novo/slug or /usado/slug
+    const conditionPath = condition === 'new' ? 'novo/' : condition === 'used' ? 'usado/' : ''
+    const targetUrl = `https://lista.mercadolivre.com.br/${conditionPath}${slug}${sortSuffix}${pageSuffix}`
 
-    const conditionLabel = CONDITION_LABEL[condition]
-    if (conditionLabel) {
-      const filteredUrl = await browserPage.evaluate((label: string) => {
-        const links = Array.from(document.querySelectorAll<HTMLAnchorElement>('a'))
-        const match = links.find((a) => a.textContent?.trim() === label)
-        return match ? match.href.split('#')[0] : null
-      }, conditionLabel)
-
-      if (filteredUrl) {
-        await browserPage.goto(filteredUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-        await browserPage.waitForTimeout(3_000)
-      }
+    // Navigate directly to the (filtered) URL. ML sometimes returns a transient error
+    // page — retry once if no product items are found.
+    let itemsFound = await navigateAndCount(browserPage, targetUrl)
+    if (itemsFound === 0) {
+      await browserPage.waitForTimeout(1_500)
+      itemsFound = await navigateAndCount(browserPage, targetUrl)
     }
 
     const products = await browserPage.evaluate((limit: number): Product[] => {
@@ -172,17 +150,13 @@ export async function searchProducts(
             .querySelector('.poly-component__review-compacted .polylabel-label')
             ?.textContent?.trim()
           const seller = item.querySelector('.poly-component__seller')?.textContent?.trim()
-          const condition = item.querySelector('.poly-component__subtitle')?.textContent?.trim()
+          const cond = item.querySelector('.poly-component__subtitle')?.textContent?.trim()
 
           const priceStr = curFraction ? `R$ ${curFraction},${curCents ?? '00'}` : ''
           const priceNum = curFraction
-            ? parseFloat(
-                `${curFraction.replace(/\./g, '')}.${curCents?.replace(',', '') ?? '00'}`,
-              )
+            ? parseFloat(`${curFraction.replace(/\./g, '')}.${curCents?.replace(',', '') ?? '00'}`)
             : 0
-          const origStr = origFraction
-            ? `R$ ${origFraction},${origCents ?? '00'}`
-            : undefined
+          const origStr = origFraction ? `R$ ${origFraction},${origCents ?? '00'}` : undefined
           const origNum = origFraction
             ? parseFloat(
                 `${origFraction.replace(/\./g, '')}.${origCents?.replace(',', '') ?? '00'}`,
@@ -197,22 +171,10 @@ export async function searchProducts(
             `${title.slice(0, 20)}-${Math.random().toString(36).slice(2)}`
 
           return {
-            id,
-            title,
-            price: priceStr,
-            priceNumber: priceNum,
-            originalPrice: origStr,
-            originalPriceNumber: origNum,
-            discount,
-            installments,
-            image,
-            link,
-            condition,
-            freeShipping,
-            fullShipping,
-            rating,
-            seller,
-            detectedAt: 0,
+            id, title, price: priceStr, priceNumber: priceNum,
+            originalPrice: origStr, originalPriceNumber: origNum,
+            discount, installments, image, link, condition: cond,
+            freeShipping, fullShipping, rating, seller, detectedAt: 0,
           }
         })
         .filter((p): p is Product => p !== null && p.title !== '' && p.price !== '')
@@ -222,7 +184,7 @@ export async function searchProducts(
     const now = Date.now()
     return products.map((p) => ({ ...p, detectedAt: now }))
   } finally {
-    await browserPage.close()
-    await context.close()
+    // Always close browser — no singleton, clean state for next request
+    await browser.close()
   }
 }

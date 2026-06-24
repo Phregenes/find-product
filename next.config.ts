@@ -13,7 +13,8 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     '/api/search': [
       './node_modules/playwright-core/**/*',
-      './node_modules/@sparticuz/chromium-min/**/*',
+      './node_modules/@sparticuz/chromium/bin/**',
+      './node_modules/@sparticuz/chromium/build/**',
     ],
   },
 }
