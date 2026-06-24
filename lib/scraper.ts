@@ -28,13 +28,42 @@ const PAGE_SIZE = 20
 // ML occasionally serves a transient error page, so callers can retry on 0.
 async function navigateAndCount(browserPage: Page, url: string): Promise<number> {
   await browserPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+  // eslint-disable-next-line no-console
+  console.log('[scraper] navigated to', url, '-> final url:', browserPage.url())
   await browserPage
     .waitForSelector('li.ui-search-layout__item', { timeout: 6_000 })
     .catch(() => null)
-  return browserPage.evaluate(() => document.querySelectorAll('li.ui-search-layout__item').length)
+  const count = await browserPage.evaluate(
+    () => document.querySelectorAll('li.ui-search-layout__item').length,
+  )
+  if (count === 0) {
+    const debug = await browserPage.evaluate(() => ({
+      title: document.title,
+      body: document.body?.innerText?.slice(0, 200) ?? '',
+    }))
+    // eslint-disable-next-line no-console
+    console.log('[scraper] 0 items. title:', debug.title, '| body:', debug.body)
+  }
+  return count
+}
+
+// Residential proxy from env vars (optional). Set these on Vercel to route
+// scraping through a residential IP and bypass ML's datacenter-IP block.
+//   PROXY_SERVER   e.g. "http://gate.decodo.com:7000"
+//   PROXY_USERNAME / PROXY_PASSWORD
+function getProxy() {
+  const server = process.env.PROXY_SERVER?.trim()
+  if (!server) return undefined
+  return {
+    server,
+    username: process.env.PROXY_USERNAME?.trim() || undefined,
+    password: process.env.PROXY_PASSWORD?.trim() || undefined,
+  }
 }
 
 async function launchBrowser() {
+  const proxy = getProxy()
+
   // Production (Vercel / Lambda)
   if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
     const chromium = (await import('@sparticuz/chromium')).default
@@ -42,7 +71,7 @@ async function launchBrowser() {
     const { chromium: pw } = await import('playwright-core')
     // Filter --headless from sparticuz to avoid conflict with Playwright's headless:true
     const args = (chromium.args as string[]).filter((a) => !a.startsWith('--headless'))
-    return pw.launch({ args, executablePath, headless: true })
+    return pw.launch({ args, executablePath, headless: true, proxy })
   }
 
   // Local dev — use playwright's bundled Chromium
@@ -50,6 +79,7 @@ async function launchBrowser() {
   return chromium.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    proxy,
   })
 }
 
@@ -68,6 +98,16 @@ export async function searchProducts(
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       locale: 'pt-BR',
       viewport: { width: 1280, height: 720 },
+    })
+
+    // Block heavy assets (images/media/fonts) to slash proxy bandwidth usage.
+    // We only need the HTML/DOM — product data is text, so this is safe.
+    await context.route('**/*', (route) => {
+      const type = route.request().resourceType()
+      if (type === 'image' || type === 'media' || type === 'font') {
+        return route.abort()
+      }
+      return route.continue()
     })
 
     await context.addCookies([
