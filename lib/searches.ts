@@ -55,6 +55,26 @@ export async function resolveSearch(
   return created as SearchRecord
 }
 
+/** Read a cached page for a search, if it exists. */
+export async function readCachePage(
+  searchId: string,
+  page: number,
+): Promise<{ products: Product[]; scraped_at: string } | null> {
+  const admin = createAdminClient()
+  const { data, error } = await admin
+    .from('search_results')
+    .select('products, scraped_at')
+    .eq('search_id', searchId)
+    .eq('page', page)
+    .maybeSingle()
+  if (error) throw error
+  if (!data) return null
+  return {
+    products: (data.products as Product[]) ?? [],
+    scraped_at: data.scraped_at as string,
+  }
+}
+
 /** Write a scraped page into the shared cache and bump last_scraped_at. */
 export async function writeCache(
   searchId: string,

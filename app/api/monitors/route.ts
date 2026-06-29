@@ -3,6 +3,7 @@ import type { Condition, SortBy } from '@/lib/product'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveSearch } from '@/lib/searches'
+import { countUserMonitors, getUserPlan } from '@/lib/plans-server'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,6 +16,9 @@ async function getUserId() {
 }
 
 export async function GET() {
+  const userId = await getUserId()
+  if (!userId) return Response.json({ error: 'Não autenticado' }, { status: 401 })
+
   const supabase = await createClient()
   const { data, error } = await supabase
     .from('monitors')
@@ -36,6 +40,31 @@ export async function POST(request: NextRequest) {
   try {
     const search = await resolveSearch(query, DEFAULT_SORT, condition)
     const admin = createAdminClient()
+
+    // Changing condition on an existing monitor does not count as a new slot.
+    const { data: existing } = await admin
+      .from('monitors')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('search_id', search.id)
+      .maybeSingle()
+
+    if (!existing) {
+      const plan = await getUserPlan(userId)
+      const count = await countUserMonitors(userId)
+      if (count >= plan.monitorLimit) {
+        return Response.json(
+          {
+            error: `Limite do plano ${plan.name}: ${plan.monitorLimit} monitores. Faça upgrade para adicionar mais.`,
+            code: 'MONITOR_LIMIT',
+            limit: plan.monitorLimit,
+            plan: plan.id,
+          },
+          { status: 403 },
+        )
+      }
+    }
+
     const { data, error } = await admin
       .from('monitors')
       .upsert(

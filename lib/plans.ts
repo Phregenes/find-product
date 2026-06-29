@@ -1,4 +1,13 @@
-/** Subscription plan definitions — safe to import from client components. */
+/** Subscription plan definitions — safe to import from client components.
+ *
+ * Edit PLANS below to change pricing, monitor limits, and scrape frequency.
+ * - checkIntervalMinutes → how often the CRON scrapes (server, tab closed)
+ * - clientRefreshMinutes → min interval when user has the app open
+ * - activeHourStart/End → BRT window when scraping is allowed
+ *
+ * Per-user plan is stored in `profiles.plan` (Supabase).
+ * Cron runs every 5 min and skips searches not yet due per plan rules.
+ */
 
 export type PlanId = 'garimpo' | 'lojista' | 'pro'
 

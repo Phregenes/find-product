@@ -13,10 +13,14 @@ import {
 } from '@/lib/monitors'
 import { createClient } from '@/lib/supabase/client'
 import type { Product, Condition } from '@/lib/product'
+import type { PlanConfig } from '@/lib/plans'
 import { ML_PAGE_STEP } from '@/lib/product'
 
-const REFRESH_OPTIONS = [5, 10, 15, 30]
-const DEFAULT_INTERVAL = 10
+interface PlanUsage {
+  plan: PlanConfig
+  monitors: number
+  monitorLimit: number
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -203,8 +207,9 @@ export default function MonitorApp() {
   const [monitors, setMonitors] = useState<MonitorWithSearch[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [planUsage, setPlanUsage] = useState<PlanUsage | null>(null)
   const [searchInput, setSearchInput] = useState('')
-  const [intervalMin, setIntervalMin] = useState(DEFAULT_INTERVAL)
+  const [intervalMin, setIntervalMin] = useState(30)
   const [viewState, setViewState] = useState<ViewState>(EMPTY_VIEW)
   const now = useNow()
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -290,6 +295,20 @@ export default function MonitorApp() {
     const supabase = createClient()
     supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? null))
 
+    fetch('/api/plan')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.plan && data.usage) {
+          setPlanUsage({
+            plan: data.plan as PlanConfig,
+            monitors: data.usage.monitors,
+            monitorLimit: data.usage.monitorLimit,
+          })
+          setIntervalMin((data.plan as PlanConfig).clientRefreshMinutes)
+        }
+      })
+      .catch(() => {})
+
     refreshMonitors().then((list) => {
       if (list.length > 0) {
         setActiveId(list[0].id)
@@ -299,6 +318,11 @@ export default function MonitorApp() {
       setViewState((s) => ({ ...s, error: (err as Error).message }))
     })
   }, [refreshMonitors, fetchProducts])
+
+  // Keep plan usage in sync with monitor list
+  useEffect(() => {
+    setPlanUsage((u) => (u ? { ...u, monitors: monitors.length } : u))
+  }, [monitors.length])
 
   // ── Polling: refresh monitor list (new counts) + active products ────────────
   useEffect(() => {
@@ -324,6 +348,7 @@ export default function MonitorApp() {
       const created = list.find((m) => m.id === monitor.id) ?? monitor
       setActiveId(created.id)
       fetchProducts(created)
+      setPlanUsage((u) => u ? { ...u, monitors: list.length } : u)
     } catch (err) {
       setViewState((s) => ({ ...s, error: (err as Error).message }))
     }
@@ -339,6 +364,7 @@ export default function MonitorApp() {
   async function handleRemoveMonitor(id: string) {
     await deleteMonitor(id).catch(() => {})
     const list = await refreshMonitors()
+    setPlanUsage((u) => u ? { ...u, monitors: list.length } : u)
     if (activeId === id) {
       if (list[0]) { setActiveId(list[0].id); fetchProducts(list[0]) }
       else { setActiveId(null); setViewState(EMPTY_VIEW) }
@@ -367,6 +393,7 @@ export default function MonitorApp() {
   const totalNew = monitors.reduce((sum, m) => sum + (m.new_count ?? 0), 0)
   const hasMonitors = monitors.length > 0
   const activeCondition: Condition = activeMonitor?.searches?.condition ?? 'all'
+  const atMonitorLimit = planUsage !== null && planUsage.monitors >= planUsage.monitorLimit
 
   return (
     <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
@@ -396,7 +423,8 @@ export default function MonitorApp() {
             />
             <button
               type="submit"
-              disabled={!searchInput.trim()}
+              disabled={!searchInput.trim() || atMonitorLimit}
+              title={atMonitorLimit ? `Limite do plano ${planUsage?.plan.name}: ${planUsage?.monitorLimit} monitores` : undefined}
               className="flex shrink-0 items-center gap-1.5 rounded-xl bg-yellow-400 px-3 py-2 text-sm font-semibold text-zinc-900 transition hover:bg-yellow-300 active:scale-95 disabled:opacity-40 sm:px-4 sm:py-2.5"
             >
               <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -406,14 +434,20 @@ export default function MonitorApp() {
             </button>
           </form>
 
-          {/* Interval (desktop only) */}
-          <select
-            value={intervalMin}
-            onChange={(e) => setIntervalMin(Number(e.target.value))}
-            className="hidden shrink-0 rounded-lg border border-zinc-200 bg-white px-2 py-2 text-xs font-medium text-zinc-500 outline-none sm:block dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+          {/* Plan badge */}
+          {planUsage && (
+            <span className="hidden shrink-0 rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-medium text-zinc-600 sm:inline dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+              {planUsage.plan.name} · {planUsage.monitors}/{planUsage.monitorLimit}
+            </span>
+          )}
+
+          {/* Interval (desktop) — fixed by plan */}
+          <span
+            className="hidden shrink-0 text-[11px] text-zinc-400 sm:inline"
+            title="Intervalo mínimo do seu plano"
           >
-            {REFRESH_OPTIONS.map((m) => <option key={m} value={m}>{m} min</option>)}
-          </select>
+            {intervalMin} min
+          </span>
 
           {/* New badge */}
           {totalNew > 0 && (
@@ -571,13 +605,9 @@ export default function MonitorApp() {
                 </>
               )}
 
-              <select
-                value={intervalMin}
-                onChange={(e) => setIntervalMin(Number(e.target.value))}
-                className="ml-auto rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-medium text-zinc-500 outline-none sm:hidden dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400"
-              >
-                {REFRESH_OPTIONS.map((m) => <option key={m} value={m}>{m}min</option>)}
-              </select>
+              <span className="ml-auto text-[11px] text-zinc-400 sm:hidden">
+                Atualiza a cada {intervalMin} min
+              </span>
             </div>
           </div>
         )}

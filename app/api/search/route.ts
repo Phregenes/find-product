@@ -7,7 +7,9 @@ import {
   type Condition,
 } from '@/lib/scraper'
 import { createClient } from '@/lib/supabase/server'
-import { resolveSearch, writeCache } from '@/lib/searches'
+import { resolveSearch, writeCache, readCachePage } from '@/lib/searches'
+import { getSessionPlan } from '@/lib/plans-server'
+import { isWithinActiveHours } from '@/lib/plans'
 
 export const dynamic = 'force-dynamic'
 
@@ -42,7 +44,55 @@ export async function GET(request: NextRequest) {
         total: products.length,
         mlPageFull: hasMore,
         fetchedAt: Date.now(),
+        fromCache: false,
       })
+    }
+
+    const session = await getSessionPlan()
+    const plan = session?.plan
+
+    // Page-1 refresh: reuse cache if still fresh for this user's plan.
+    if (page === 1 && exclude.length === 0 && plan) {
+      const search = await resolveSearch(q, sort, condition)
+      const cached = await readCachePage(search.id, page)
+      if (cached) {
+        const ageMin = (Date.now() - new Date(cached.scraped_at).getTime()) / 60_000
+        if (ageMin < plan.clientRefreshMinutes) {
+          return Response.json({
+            products: cached.products,
+            query: q,
+            page,
+            condition,
+            total: cached.products.length,
+            mlPageFull: cached.products.length >= ML_PAGE_STEP,
+            fetchedAt: new Date(cached.scraped_at).getTime(),
+            fromCache: true,
+          })
+        }
+      }
+
+      if (!isWithinActiveHours(plan)) {
+        if (cached) {
+          return Response.json({
+            products: cached.products,
+            query: q,
+            page,
+            condition,
+            total: cached.products.length,
+            mlPageFull: cached.products.length >= ML_PAGE_STEP,
+            fetchedAt: new Date(cached.scraped_at).getTime(),
+            fromCache: true,
+            outsideActiveHours: true,
+          })
+        }
+        return Response.json(
+          {
+            error: `Busca automática disponível das ${plan.activeHourStart}h às ${plan.activeHourEnd}h (horário de Brasília).`,
+            code: 'OUTSIDE_ACTIVE_HOURS',
+          },
+          { status: 429 },
+        )
+      }
     }
 
     const { products, scrapedCount } = await searchProducts(q, sort, page, condition, exclude)
@@ -66,6 +116,7 @@ export async function GET(request: NextRequest) {
       total: products.length,
       mlPageFull: scrapedCount >= ML_PAGE_STEP,
       fetchedAt: Date.now(),
+      fromCache: false,
     })
   } catch (err) {
     const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err)
