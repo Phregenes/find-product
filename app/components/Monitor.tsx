@@ -1,18 +1,19 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import {
-  type MonitorEntry,
-  type MonitorMap,
-  loadMonitors,
-  addMonitor,
-  removeMonitor,
-  markAllAsSeen,
-  updateMonitorResults,
-  setMonitorCondition,
-  normalizeKey,
-} from '@/lib/storage'
-import type { Product, Condition } from '@/lib/scraper'
+  type MonitorWithSearch,
+  listMonitors,
+  createMonitor,
+  deleteMonitor,
+  updateMonitorCondition,
+  getSeenIds,
+  addSeenIds,
+} from '@/lib/monitors'
+import { createClient } from '@/lib/supabase/client'
+import type { Product, Condition } from '@/lib/product'
+import { ML_PAGE_STEP } from '@/lib/product'
 
 const REFRESH_OPTIONS = [5, 10, 15, 30]
 const DEFAULT_INTERVAL = 10
@@ -29,6 +30,19 @@ function formatDetectedAt(ts: number): string {
   return new Date(ts).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
 }
 
+/** Append incoming products, skipping IDs already in the list. */
+function mergeProducts(existing: Product[], incoming: Product[]): Product[] {
+  const seen = new Set(existing.map((p) => p.id))
+  const merged = [...existing]
+  for (const p of incoming) {
+    if (!seen.has(p.id)) {
+      seen.add(p.id)
+      merged.push(p)
+    }
+  }
+  return merged
+}
+
 function relativeTime(ts: number, now: number): string {
   if (ts === 0) return 'nunca'
   const diff = Math.floor((now - ts) / 1000)
@@ -36,6 +50,11 @@ function relativeTime(ts: number, now: number): string {
   if (diff < 3600) return `${Math.floor(diff / 60)} min atrás`
   if (diff < 86400) return `${Math.floor(diff / 3600)}h atrás`
   return `${Math.floor(diff / 86400)}d atrás`
+}
+
+function lastCheckedMs(monitor: MonitorWithSearch | null): number {
+  if (!monitor?.last_checked_at) return 0
+  return new Date(monitor.last_checked_at).getTime()
 }
 
 function useNow() {
@@ -174,162 +193,186 @@ interface ViewState {
   hasMore: boolean
 }
 
+const EMPTY_VIEW: ViewState = {
+  loading: false, loadingMore: false, error: null,
+  products: [], newIds: new Set(), page: 1, hasMore: true,
+}
+
 export default function MonitorApp() {
-  const [monitors, setMonitors] = useState<MonitorMap>({})
-  const [activeKey, setActiveKey] = useState<string | null>(null)
+  const router = useRouter()
+  const [monitors, setMonitors] = useState<MonitorWithSearch[]>([])
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const [userEmail, setUserEmail] = useState<string | null>(null)
   const [searchInput, setSearchInput] = useState('')
   const [intervalMin, setIntervalMin] = useState(DEFAULT_INTERVAL)
-  const [viewState, setViewState] = useState<ViewState>({
-    loading: false, loadingMore: false, error: null,
-    products: [], newIds: new Set(), page: 1, hasMore: true,
-  })
+  const [viewState, setViewState] = useState<ViewState>(EMPTY_VIEW)
   const now = useNow()
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // Load state on mount
-  useEffect(() => {
-    const saved = loadMonitors()
-    setMonitors(saved)
-    const keys = Object.keys(saved)
-    if (keys.length > 0) setActiveKey(keys[0])
-  }, [])
+  const activeMonitor = activeId ? monitors.find((m) => m.id === activeId) ?? null : null
 
-  // ── Fetch page 1 ────────────────────────────────────────────────────────────
-  const fetchProducts = useCallback(async (query: string) => {
-    const key = normalizeKey(query)
-    setActiveKey(key)
+  // ── Fetch products for a monitor (page 1) ─────────────────────────────────
+  const fetchProducts = useCallback(async (monitor: MonitorWithSearch) => {
+    setActiveId(monitor.id)
     setViewState((s) => ({ ...s, loading: true, error: null, products: [], newIds: new Set(), page: 1, hasMore: true }))
+    const condition = monitor.searches?.condition ?? 'all'
     try {
-      const saved = loadMonitors()
-      const condition = saved[key]?.condition ?? 'all'
-      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&sort=recent&page=1&condition=${condition}`)
+      const res = await fetch(
+        `/api/search?q=${encodeURIComponent(monitor.query)}&sort=recent&page=1&condition=${condition}`,
+      )
       const data = await res.json()
       if (!res.ok || data.error) throw new Error(data.error ?? 'Erro ao buscar')
-      const { monitors: updated, newProducts } = updateMonitorResults(query, data.products, data.fetchedAt ?? Date.now())
-      setMonitors(updated)
-      const enriched = updated[key]?.lastResults ?? (data.products as Product[])
+
+      const products = (data.products as Product[]) ?? []
+      const seen = await getSeenIds(monitor.id)
+
+      let newIds: Set<string>
+      if (seen.size === 0) {
+        // First time seeing this monitor — baseline everything as seen.
+        await addSeenIds(monitor.id, products.map((p) => p.id))
+        newIds = new Set()
+      } else {
+        newIds = new Set(products.filter((p) => !seen.has(p.id)).map((p) => p.id))
+      }
+
       setViewState({
         loading: false, loadingMore: false, error: null,
-        products: enriched,
-        newIds: new Set(newProducts.map((p: Product) => p.id)),
-        page: 1, hasMore: enriched.length >= 20,
+        products,
+        newIds,
+        page: 1,
+        hasMore: data.mlPageFull ?? products.length >= ML_PAGE_STEP,
       })
     } catch (err) {
-      const saved = loadMonitors()
-      const cached = saved[key]?.lastResults ?? []
       setViewState({
         loading: false, loadingMore: false,
-        error: cached.length > 0 ? null : (err as Error).message,
-        products: cached, newIds: new Set(), page: 1, hasMore: false,
+        error: (err as Error).message,
+        products: [], newIds: new Set(), page: 1, hasMore: false,
       })
     }
   }, [])
 
-  // ── Load more ────────────────────────────────────────────────────────────────
-  const loadMore = useCallback(async (query: string, nextPage: number) => {
+  // ── Load more ──────────────────────────────────────────────────────────────
+  const loadMore = useCallback(async (monitor: MonitorWithSearch, nextPage: number) => {
     setViewState((s) => ({ ...s, loadingMore: true }))
+    const condition = monitor.searches?.condition ?? 'all'
     try {
-      const saved = loadMonitors()
-      const condition = saved[normalizeKey(query)]?.condition ?? 'all'
-      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&sort=recent&page=${nextPage}&condition=${condition}`)
+      let current: Product[] = []
+      await new Promise<void>((resolve) => {
+        setViewState((s) => { current = [...s.products]; resolve(); return s })
+      })
+      const exclude = current.map((p) => p.id).join(',')
+      const res = await fetch(
+        `/api/search?q=${encodeURIComponent(monitor.query)}&sort=recent&page=${nextPage}&condition=${condition}&exclude=${exclude}&minNew=20`,
+      )
       const data = await res.json()
       if (!res.ok || data.error) throw new Error(data.error)
+      const incoming = data.products as Product[]
       setViewState((s) => ({
-        ...s, loadingMore: false,
-        products: [...s.products, ...(data.products as Product[])],
-        page: nextPage, hasMore: (data.products as Product[]).length >= 20,
+        ...s,
+        loadingMore: false,
+        products: mergeProducts(s.products, incoming),
+        page: data.page ?? nextPage,
+        hasMore: data.mlPageFull === true,
       }))
     } catch {
       setViewState((s) => ({ ...s, loadingMore: false, hasMore: false }))
     }
   }, [])
 
-  // ── Polling ──────────────────────────────────────────────────────────────────
+  // ── Load monitors on mount ───────────────────────────────────────────────────
+  const refreshMonitors = useCallback(async (): Promise<MonitorWithSearch[]> => {
+    const list = await listMonitors()
+    setMonitors(list)
+    return list
+  }, [])
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? null))
+
+    refreshMonitors().then((list) => {
+      if (list.length > 0) {
+        setActiveId(list[0].id)
+        fetchProducts(list[0])
+      }
+    }).catch((err) => {
+      setViewState((s) => ({ ...s, error: (err as Error).message }))
+    })
+  }, [refreshMonitors, fetchProducts])
+
+  // ── Polling: refresh monitor list (new counts) + active products ────────────
   useEffect(() => {
     if (pollingRef.current) clearInterval(pollingRef.current)
-    pollingRef.current = setInterval(() => {
-      const current = loadMonitors()
-      for (const entry of Object.values(current)) fetchProducts(entry.query)
+    pollingRef.current = setInterval(async () => {
+      const list = await refreshMonitors().catch(() => null)
+      if (!list) return
+      const active = activeId ? list.find((m) => m.id === activeId) : null
+      if (active) fetchProducts(active)
     }, intervalMin * 60 * 1000)
     return () => { if (pollingRef.current) clearInterval(pollingRef.current) }
-  }, [intervalMin, fetchProducts])
-
-  // ── On mount: restore cache + background refresh ─────────────────────────────
-  useEffect(() => {
-    const saved = loadMonitors()
-    const keys = Object.keys(saved)
-    if (keys.length === 0) return
-    const firstKey = keys[0]
-    const firstEntry = saved[firstKey]
-    if (firstEntry.lastResults.length > 0) {
-      setActiveKey(firstKey)
-      setViewState((s) => ({
-        ...s, products: firstEntry.lastResults,
-        newIds: new Set(), hasMore: firstEntry.lastResults.length >= 20,
-      }))
-    }
-    for (const key of keys) {
-      const entry = saved[key]
-      fetch(`/api/search?q=${encodeURIComponent(entry.query)}&sort=recent&condition=${entry.condition ?? 'all'}`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (!data.products) return
-          const { monitors: updated, newProducts } = updateMonitorResults(entry.query, data.products, data.fetchedAt ?? Date.now())
-          setMonitors(updated)
-          if (key === firstKey) {
-            const enriched = updated[key]?.lastResults ?? data.products
-            setViewState((s) => ({
-              ...s, loading: false, products: enriched,
-              newIds: new Set(newProducts.map((p: Product) => p.id)),
-              hasMore: enriched.length >= 20,
-            }))
-          }
-        })
-        .catch(() => {})
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [intervalMin, activeId, refreshMonitors, fetchProducts])
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
-  function handleAddMonitor(e: React.FormEvent) {
+  async function handleAddMonitor(e: React.FormEvent) {
     e.preventDefault()
     const q = searchInput.trim()
     if (!q) return
-    const updated = addMonitor(q)
-    setMonitors(updated)
     setSearchInput('')
-    fetchProducts(q)
-  }
-
-  function handleMarkSeen() {
-    if (!activeKey) return
-    const entry = monitors[activeKey]
-    if (!entry) return
-    const updated = markAllAsSeen(entry.query, viewState.products)
-    setMonitors(updated)
-    setViewState((s) => ({ ...s, newIds: new Set() }))
-  }
-
-  function handleRemoveMonitor(key: string, query: string) {
-    const updated = removeMonitor(query)
-    setMonitors(updated)
-    if (activeKey === key) {
-      const remaining = Object.keys(updated)
-      setActiveKey(remaining[0] ?? null)
-      if (remaining[0]) fetchProducts(updated[remaining[0]].query)
-      else setViewState({ loading: false, loadingMore: false, error: null, products: [], newIds: new Set(), page: 1, hasMore: false })
+    try {
+      const monitor = await createMonitor(q)
+      const list = await refreshMonitors()
+      const created = list.find((m) => m.id === monitor.id) ?? monitor
+      setActiveId(created.id)
+      fetchProducts(created)
+    } catch (err) {
+      setViewState((s) => ({ ...s, error: (err as Error).message }))
     }
   }
 
-  const activeEntry: MonitorEntry | null = activeKey ? monitors[activeKey] ?? null : null
-  const totalNew = Object.values(monitors).reduce((sum, m) => sum + (m.newCount ?? 0), 0)
-  const hasMonitors = Object.keys(monitors).length > 0
+  async function handleMarkSeen() {
+    if (!activeMonitor) return
+    await addSeenIds(activeMonitor.id, viewState.products.map((p) => p.id)).catch(() => {})
+    setViewState((s) => ({ ...s, newIds: new Set() }))
+    setMonitors((prev) => prev.map((m) => (m.id === activeMonitor.id ? { ...m, new_count: 0 } : m)))
+  }
+
+  async function handleRemoveMonitor(id: string) {
+    await deleteMonitor(id).catch(() => {})
+    const list = await refreshMonitors()
+    if (activeId === id) {
+      if (list[0]) { setActiveId(list[0].id); fetchProducts(list[0]) }
+      else { setActiveId(null); setViewState(EMPTY_VIEW) }
+    }
+  }
+
+  async function handleChangeCondition(val: Condition) {
+    if (!activeMonitor) return
+    try {
+      await updateMonitorCondition(activeMonitor.id, val)
+      const list = await refreshMonitors()
+      const updated = list.find((m) => m.id === activeMonitor.id)
+      if (updated) fetchProducts(updated)
+    } catch (err) {
+      setViewState((s) => ({ ...s, error: (err as Error).message }))
+    }
+  }
+
+  async function handleSignOut() {
+    const supabase = createClient()
+    await supabase.auth.signOut()
+    router.push('/login')
+    router.refresh()
+  }
+
+  const totalNew = monitors.reduce((sum, m) => sum + (m.new_count ?? 0), 0)
+  const hasMonitors = monitors.length > 0
+  const activeCondition: Condition = activeMonitor?.searches?.condition ?? 'all'
 
   return (
     <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-20 border-b border-zinc-200/80 bg-white/95 backdrop-blur-md dark:border-zinc-800/80 dark:bg-zinc-950/95">
-        {/* Single row — works on all sizes */}
         <div className="flex items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-6 sm:py-3">
 
           {/* Logo */}
@@ -342,7 +385,7 @@ export default function MonitorApp() {
             <span className="hidden text-sm font-bold text-zinc-900 sm:block dark:text-white">FindProduct</span>
           </div>
 
-          {/* Search — always visible, flex-1 fills remaining space */}
+          {/* Search */}
           <form onSubmit={handleAddMonitor} className="flex flex-1 items-center gap-2">
             <input
               type="text"
@@ -378,31 +421,48 @@ export default function MonitorApp() {
               {totalNew}
             </span>
           )}
+
+          {/* Account menu */}
+          <div className="group relative shrink-0">
+            <button className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-200 text-xs font-bold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+              {(userEmail?.[0] ?? '?').toUpperCase()}
+            </button>
+            <div className="absolute right-0 top-9 z-30 hidden w-48 flex-col rounded-xl border border-zinc-200 bg-white p-1 shadow-lg group-hover:flex dark:border-zinc-700 dark:bg-zinc-900">
+              {userEmail && (
+                <span className="truncate px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">{userEmail}</span>
+              )}
+              <button
+                onClick={handleSignOut}
+                className="rounded-lg px-3 py-2 text-left text-sm text-red-600 transition hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
+              >
+                Sair
+              </button>
+            </div>
+          </div>
         </div>
 
-        {/* ── Monitor tabs (horizontal scroll, all screens) ─────────────────── */}
+        {/* ── Monitor tabs ─────────────────────────────────────────────────── */}
         {hasMonitors && (
           <div className="flex gap-1.5 overflow-x-auto px-3 pb-2.5 pt-0 scrollbar-none sm:px-6">
-            {Object.entries(monitors).map(([key, entry]) => (
-              <div key={key} className="group relative flex shrink-0 items-center">
+            {monitors.map((entry) => (
+              <div key={entry.id} className="group relative flex shrink-0 items-center">
                 <button
-                  onClick={() => { setActiveKey(key); fetchProducts(entry.query) }}
+                  onClick={() => { setActiveId(entry.id); fetchProducts(entry) }}
                   className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition whitespace-nowrap ${
-                    activeKey === key
+                    activeId === entry.id
                       ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900'
                       : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
                   }`}
                 >
                   <span className="capitalize">{entry.query}</span>
-                  {entry.newCount > 0 && (
+                  {entry.new_count > 0 && (
                     <span className="flex h-4 w-4 items-center justify-center rounded-full bg-green-500 text-[9px] font-bold text-white">
-                      {entry.newCount}
+                      {entry.new_count}
                     </span>
                   )}
                 </button>
-                {/* Remove button on long press / hover */}
                 <button
-                  onClick={() => handleRemoveMonitor(key, entry.query)}
+                  onClick={() => handleRemoveMonitor(entry.id)}
                   className="absolute -right-1 -top-1 hidden h-4 w-4 items-center justify-center rounded-full bg-zinc-400 text-white transition hover:bg-red-500 group-hover:flex"
                   title="Remover"
                 >
@@ -420,7 +480,7 @@ export default function MonitorApp() {
       <main className="mx-auto w-full max-w-7xl flex-1 px-3 py-4 sm:px-6 sm:py-6">
 
         {/* Empty state */}
-        {!hasMonitors && (
+        {!hasMonitors && !viewState.loading && (
           <div className="flex flex-col items-center justify-center gap-6 py-16 text-center sm:py-24">
             <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-yellow-400 shadow-lg sm:h-20 sm:w-20">
               <svg className="h-8 w-8 text-zinc-900 sm:h-10 sm:w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -432,7 +492,7 @@ export default function MonitorApp() {
                 Monitore publicações novas no ML
               </h1>
               <p className="max-w-xs text-sm text-zinc-500 sm:max-w-sm dark:text-zinc-400">
-                Toque em <strong className="text-zinc-700 dark:text-zinc-300">+</strong> acima, adicione uma busca e o app avisa quando aparecer coisa nova.
+                Adicione uma busca acima e o app avisa quando aparecer coisa nova.
               </p>
             </div>
             <div className="flex flex-wrap justify-center gap-2">
@@ -450,13 +510,12 @@ export default function MonitorApp() {
         )}
 
         {/* ── Status bar ──────────────────────────────────────────────────── */}
-        {activeEntry && (
+        {activeMonitor && (
           <div className="mb-4 flex flex-col gap-2 rounded-xl border border-zinc-100 bg-white p-3 sm:rounded-xl sm:p-4 dark:border-zinc-800 dark:bg-zinc-900">
-            {/* Row 1: query + spinner + last check */}
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="truncate text-sm font-semibold capitalize text-zinc-900 dark:text-white">
-                  {activeEntry.query}
+                  {activeMonitor.query}
                 </span>
                 {viewState.loading && (
                   <svg className="h-3.5 w-3.5 shrink-0 animate-spin text-yellow-500" viewBox="0 0 24 24" fill="none">
@@ -465,13 +524,12 @@ export default function MonitorApp() {
                   </svg>
                 )}
                 <span className="shrink-0 text-xs text-zinc-400">
-                  {viewState.loading ? 'buscando...' : relativeTime(activeEntry.lastChecked, now)}
+                  {viewState.loading ? 'buscando...' : relativeTime(lastCheckedMs(activeMonitor), now)}
                 </span>
               </div>
 
-              {/* Refresh button */}
               <button
-                onClick={() => fetchProducts(activeEntry.query)}
+                onClick={() => fetchProducts(activeMonitor)}
                 disabled={viewState.loading}
                 className="flex shrink-0 items-center gap-1 rounded-lg border border-zinc-200 px-2.5 py-1 text-xs font-medium text-zinc-500 transition hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
               >
@@ -482,20 +540,14 @@ export default function MonitorApp() {
               </button>
             </div>
 
-            {/* Row 2: condition filter + actions */}
             <div className="flex flex-wrap items-center gap-2">
-              {/* Condition toggle */}
               <div className="flex items-center gap-0.5 rounded-lg border border-zinc-200 p-0.5 dark:border-zinc-700">
                 {(['all', 'new', 'used'] as Condition[]).map((val) => (
                   <button
                     key={val}
-                    onClick={() => {
-                      const updated = setMonitorCondition(activeEntry.query, val)
-                      setMonitors(updated)
-                      fetchProducts(activeEntry.query)
-                    }}
+                    onClick={() => handleChangeCondition(val)}
                     className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
-                      (activeEntry.condition ?? 'all') === val
+                      activeCondition === val
                         ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900'
                         : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400'
                     }`}
@@ -505,7 +557,6 @@ export default function MonitorApp() {
                 ))}
               </div>
 
-              {/* New badge + mark seen */}
               {viewState.newIds.size > 0 && (
                 <>
                   <span className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700 dark:bg-green-900/30 dark:text-green-400">
@@ -520,7 +571,6 @@ export default function MonitorApp() {
                 </>
               )}
 
-              {/* Interval (mobile only, in status bar) */}
               <select
                 value={intervalMin}
                 onChange={(e) => setIntervalMin(Number(e.target.value))}
@@ -543,12 +593,12 @@ export default function MonitorApp() {
         )}
 
         {/* No new products notice */}
-        {!viewState.loading && !viewState.error && viewState.products.length > 0 && viewState.newIds.size === 0 && (activeEntry?.lastChecked ?? 0) > 0 && (
+        {!viewState.loading && !viewState.error && viewState.products.length > 0 && viewState.newIds.size === 0 && lastCheckedMs(activeMonitor) > 0 && (
           <div className="mb-4 flex items-center gap-2 rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500 sm:px-4 sm:py-3 sm:text-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
             <svg className="h-3.5 w-3.5 shrink-0 text-green-500 sm:h-4 sm:w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            Sem novidades desde <strong className="ml-1 text-zinc-700 dark:text-zinc-200">{relativeTime(activeEntry?.lastChecked ?? 0, now)}</strong>
+            Sem novidades desde <strong className="ml-1 text-zinc-700 dark:text-zinc-200">{relativeTime(lastCheckedMs(activeMonitor), now)}</strong>
           </div>
         )}
 
@@ -567,10 +617,10 @@ export default function MonitorApp() {
                 ))}
             </div>
 
-            {viewState.hasMore && activeEntry && (
+            {viewState.hasMore && activeMonitor && (
               <div className="flex justify-center pt-2 pb-4">
                 <button
-                  onClick={() => loadMore(activeEntry.query, viewState.page + 1)}
+                  onClick={() => loadMore(activeMonitor, viewState.page + 1)}
                   disabled={viewState.loadingMore}
                   className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-5 py-2.5 text-sm font-medium text-zinc-600 shadow-sm transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
                 >

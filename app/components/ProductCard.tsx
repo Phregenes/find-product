@@ -1,4 +1,4 @@
-import type { Product } from '@/lib/scraper'
+import type { Product } from '@/lib/product'
 import Image from 'next/image'
 
 interface Props {

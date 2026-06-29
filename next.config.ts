@@ -16,6 +16,11 @@ const nextConfig: NextConfig = {
       './node_modules/@sparticuz/chromium/bin/**',
       './node_modules/@sparticuz/chromium/build/**',
     ],
+    '/api/cron/scrape': [
+      './node_modules/playwright-core/**/*',
+      './node_modules/@sparticuz/chromium/bin/**',
+      './node_modules/@sparticuz/chromium/build/**',
+    ],
   },
 }
 

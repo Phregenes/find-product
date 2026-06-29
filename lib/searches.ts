@@ -1,0 +1,82 @@
+import 'server-only'
+
+import type { Condition, Product, SortBy } from './product'
+import { createAdminClient } from './supabase/admin'
+import { normalizeQuery } from './monitors'
+
+export interface SearchRecord {
+  id: string
+  query: string
+  query_normalized: string
+  sort_by: SortBy
+  condition: Condition
+  last_scraped_at: string | null
+}
+
+/**
+ * Find or create the shared search row for a (query, sort, condition) tuple.
+ * Shared across all users so a single scrape can serve everyone monitoring it.
+ */
+export async function resolveSearch(
+  query: string,
+  sortBy: SortBy,
+  condition: Condition,
+): Promise<SearchRecord> {
+  const admin = createAdminClient()
+  const query_normalized = normalizeQuery(query)
+
+  const { data: existing, error: selErr } = await admin
+    .from('searches')
+    .select('*')
+    .eq('query_normalized', query_normalized)
+    .eq('sort_by', sortBy)
+    .eq('condition', condition)
+    .maybeSingle()
+  if (selErr) throw selErr
+  if (existing) return existing as SearchRecord
+
+  const { data: created, error: insErr } = await admin
+    .from('searches')
+    .insert({ query, query_normalized, sort_by: sortBy, condition })
+    .select('*')
+    .single()
+  if (insErr) {
+    // Race: another request created it first — fetch again.
+    const { data: retry } = await admin
+      .from('searches')
+      .select('*')
+      .eq('query_normalized', query_normalized)
+      .eq('sort_by', sortBy)
+      .eq('condition', condition)
+      .single()
+    if (retry) return retry as SearchRecord
+    throw insErr
+  }
+  return created as SearchRecord
+}
+
+/** Write a scraped page into the shared cache and bump last_scraped_at. */
+export async function writeCache(
+  searchId: string,
+  page: number,
+  products: Product[],
+): Promise<void> {
+  const admin = createAdminClient()
+  const { error } = await admin
+    .from('search_results')
+    .upsert(
+      { search_id: searchId, page, products, scraped_at: new Date().toISOString() },
+      { onConflict: 'search_id,page' },
+    )
+  if (error) throw error
+  await admin
+    .from('searches')
+    .update({ last_scraped_at: new Date().toISOString() })
+    .eq('id', searchId)
+}
+
+/** How stale (ms) the cache is for a search, or Infinity if never scraped. */
+export function cacheAgeMs(lastScrapedAt: string | null): number {
+  if (!lastScrapedAt) return Infinity
+  return Date.now() - new Date(lastScrapedAt).getTime()
+}
