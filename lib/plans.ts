@@ -6,7 +6,7 @@
  * - activeHourStart/End → BRT window when scraping is allowed
  *
  * Per-user plan is stored in `profiles.plan` (Supabase).
- * Vercel Hobby cron runs once daily (11:00 UTC = 8h BRT); Pro can use */5.
+ * Vercel Hobby cron runs once daily (11:00 UTC = 8h BRT); Pro can use every-5-min schedule.
  */
 
 export type PlanId = 'garimpo' | 'lojista' | 'pro'
