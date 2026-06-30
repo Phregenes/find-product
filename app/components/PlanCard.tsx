@@ -51,14 +51,38 @@ export default function PlanCard({
         <li className="flex items-start gap-2">
           <CheckIcon />
           <span>
-            Atualização a cada <strong>{formatRefreshMinutes(plan.clientRefreshMinutes)}</strong>{' '}
-            com o app aberto
+            {plan.id === 'free' ? (
+              <>
+                Novidades verificadas <strong>{formatRefreshMinutes(plan.checkIntervalMinutes)}</strong>
+              </>
+            ) : (
+              <>
+                Atualização a cada <strong>{formatRefreshMinutes(plan.clientRefreshMinutes)}</strong>{' '}
+                com o app aberto
+              </>
+            )}
           </span>
         </li>
+        {paid && (
+          <li className="flex items-start gap-2">
+            <CheckIcon />
+            <span>
+              Monitoramento <strong>{formatActiveHours(plan)}</strong> (BRT)
+            </span>
+          </li>
+        )}
         <li className="flex items-start gap-2">
           <CheckIcon />
           <span>
-            Monitoramento <strong>{formatActiveHours(plan)}</strong> (BRT)
+            {plan.emailAlerts ? (
+              <>
+                Alertas por <strong>e-mail</strong> quando houver novidade
+              </>
+            ) : (
+              <>
+                Novidades apenas no <strong>app</strong>
+              </>
+            )}
           </span>
         </li>
         {!paid && (

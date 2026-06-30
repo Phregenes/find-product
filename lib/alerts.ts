@@ -104,7 +104,7 @@ export async function processMonitorAlerts(
     let emailed = false
     let emailError: string | undefined
 
-    if (newCount > 0 && profile.email && profile.emailAlerts) {
+    if (newCount > 0 && profile.email && profile.emailAlerts && plan.emailAlerts) {
       const send = await sendNewProductsEmail({
         to: profile.email,
         monitorQuery: query,
@@ -112,6 +112,7 @@ export async function processMonitorAlerts(
       })
       emailed = send.ok
       if (!send.ok) emailError = send.error
+      else await baselineMonitorSeen(monitorId, newProducts.map((p) => p.id))
     }
 
     results.push({ monitorId, query, newCount, emailed, emailError })

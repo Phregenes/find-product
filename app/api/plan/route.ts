@@ -26,6 +26,7 @@ export async function GET() {
       activeHourStart: p.activeHourStart,
       activeHourEnd: p.activeHourEnd,
       tagline: p.tagline,
+      emailAlerts: p.emailAlerts,
     })),
   })
 }

@@ -4,6 +4,7 @@
  * - checkIntervalMinutes → how often the CRON scrapes (server, tab closed)
  * - clientRefreshMinutes → min interval when user has the app open
  * - activeHourStart/End → BRT window when scraping is allowed
+ * - emailAlerts → cron sends email when new listings appear (Lojista+)
  *
  * New signups get `free`. Paid tiers: garimpo, lojista, pro.
  * Per-user plan is stored in `profiles.plan` (Supabase).
@@ -28,6 +29,8 @@ export interface PlanConfig {
   activeHourEnd: number
   /** Short marketing blurb for pricing page. */
   tagline: string
+  /** Whether this plan sends new-listing alerts by email (cron). */
+  emailAlerts: boolean
 }
 
 export const DEFAULT_PLAN_ID: PlanId = 'free'
@@ -41,10 +44,11 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     priceMonthly: 0,
     monitorLimit: 1,
     checkIntervalMinutes: 1440,
-    clientRefreshMinutes: 60,
-    activeHourStart: 8,
-    activeHourEnd: 20,
+    clientRefreshMinutes: 1440,
+    activeHourStart: 0,
+    activeHourEnd: 24,
     tagline: 'Experimente com 1 monitor antes de assinar.',
+    emailAlerts: false,
   },
   garimpo: {
     id: 'garimpo',
@@ -56,6 +60,7 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     activeHourStart: 8,
     activeHourEnd: 20,
     tagline: 'Para quem garimpa oportunidades no dia a dia.',
+    emailAlerts: false,
   },
   lojista: {
     id: 'lojista',
@@ -67,6 +72,7 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     activeHourStart: 8,
     activeHourEnd: 20,
     tagline: 'Mais monitores e atualizações frequentes.',
+    emailAlerts: true,
   },
   pro: {
     id: 'pro',
@@ -78,6 +84,7 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     activeHourStart: 0,
     activeHourEnd: 24,
     tagline: 'Máxima cobertura para operação profissional.',
+    emailAlerts: true,
   },
 }
 
