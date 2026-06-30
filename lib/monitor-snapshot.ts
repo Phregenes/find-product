@@ -88,6 +88,7 @@ export async function clearMonitorSnapshot(monitorId: string): Promise<void> {
     .update({
       snapshot_products: null,
       snapshot_at: null,
+      last_notified_item_ids: [],
     })
     .eq('id', monitorId)
   if (error) throw error

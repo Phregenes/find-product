@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { sendNewProductsEmail } from '@/lib/email/send'
 import { saveMonitorSnapshot } from '@/lib/monitor-snapshot'
 import { baselineMonitorSeen } from '@/lib/monitor-seen'
+import { sameItemIdSet } from '@/lib/notification-fingerprint'
 
 export interface MonitorAlertResult {
   monitorId: string
@@ -13,6 +14,7 @@ export interface MonitorAlertResult {
   newCount: number
   emailed: boolean
   emailError?: string
+  emailSkippedDuplicate?: boolean
   baselined?: boolean
   skipped?: boolean
 }
@@ -22,6 +24,7 @@ interface MonitorRow {
   user_id: string
   query: string
   snapshot_at: string | null
+  last_notified_item_ids: string[] | null
 }
 
 /** Update snapshots, counts and emails — only for monitors due on their plan interval. */
@@ -35,7 +38,7 @@ export async function processMonitorAlerts(
 
   const { data: monitors, error: mErr } = await admin
     .from('monitors')
-    .select('id, user_id, query, snapshot_at')
+    .select('id, user_id, query, snapshot_at, last_notified_item_ids')
     .eq('search_id', searchId)
   if (mErr) throw mErr
   if (!monitors?.length) return results
@@ -99,23 +102,46 @@ export async function processMonitorAlerts(
     }
 
     const newCount = newProducts.length
+    const newProductIds = newProducts.map((p) => p.id)
+    const lastNotifiedIds = monitor.last_notified_item_ids ?? []
+
     await admin.from('monitors').update({ new_count: newCount }).eq('id', monitorId)
 
     let emailed = false
     let emailError: string | undefined
+    let emailSkippedDuplicate = false
 
-    if (newCount > 0 && profile.email && profile.emailAlerts && plan.emailAlerts) {
-      const send = await sendNewProductsEmail({
-        to: profile.email,
-        monitorQuery: query,
-        products: newProducts,
-      })
-      emailed = send.ok
-      if (!send.ok) emailError = send.error
-      else await baselineMonitorSeen(monitorId, newProducts.map((p) => p.id))
+    const canEmail =
+      newCount > 0 && profile.email && profile.emailAlerts && plan.emailAlerts
+
+    if (canEmail) {
+      if (sameItemIdSet(newProductIds, lastNotifiedIds)) {
+        emailSkippedDuplicate = true
+      } else {
+        const send = await sendNewProductsEmail({
+          to: profile.email!,
+          monitorQuery: query,
+          products: newProducts,
+        })
+        emailed = send.ok
+        if (!send.ok) emailError = send.error
+        else {
+          await admin
+            .from('monitors')
+            .update({ last_notified_item_ids: newProductIds })
+            .eq('id', monitorId)
+        }
+      }
     }
 
-    results.push({ monitorId, query, newCount, emailed, emailError })
+    results.push({
+      monitorId,
+      query,
+      newCount,
+      emailed,
+      emailError,
+      emailSkippedDuplicate: emailSkippedDuplicate || undefined,
+    })
   }
 
   return results
