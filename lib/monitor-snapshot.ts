@@ -11,9 +11,31 @@ export interface MonitorSnapshotRow {
   query: string
   search_id: string
   snapshot_products: Product[] | null
+  snapshot_search_id: string | null
   snapshot_at: string | null
   last_checked_at: string | null
   new_count: number
+}
+
+interface SnapshotPayload {
+  searchId: string
+  products: Product[]
+}
+
+function parseSnapshot(raw: unknown): SnapshotPayload | null {
+  if (!raw || typeof raw !== 'object') return null
+
+  // New format: { searchId, products }
+  if ('searchId' in raw && 'products' in raw) {
+    const payload = raw as SnapshotPayload
+    if (typeof payload.searchId !== 'string' || !Array.isArray(payload.products)) return null
+    return payload
+  }
+
+  // Legacy format: bare Product[] — cannot trust condition after filter changes.
+  if (Array.isArray(raw)) return null
+
+  return null
 }
 
 export async function loadMonitorSnapshot(
@@ -29,22 +51,29 @@ export async function loadMonitorSnapshot(
     .maybeSingle()
   if (error) throw error
   if (!data) return null
+
+  const payload = parseSnapshot(data.snapshot_products)
   return {
     ...data,
-    snapshot_products: (data.snapshot_products as Product[] | null) ?? null,
+    snapshot_products: payload?.products ?? null,
+    snapshot_search_id: payload?.searchId ?? null,
   } as MonitorSnapshotRow
 }
 
 export async function saveMonitorSnapshot(
   monitorId: string,
   products: Product[],
+  searchId: string,
 ): Promise<void> {
+  if (products.length === 0) return
+
   const admin = createAdminClient()
   const now = new Date().toISOString()
+  const snapshot: SnapshotPayload = { searchId, products }
   const { error } = await admin
     .from('monitors')
     .update({
-      snapshot_products: products,
+      snapshot_products: snapshot,
       snapshot_at: now,
       last_checked_at: now,
     })
@@ -52,15 +81,37 @@ export async function saveMonitorSnapshot(
   if (error) throw error
 }
 
+export async function clearMonitorSnapshot(monitorId: string): Promise<void> {
+  const admin = createAdminClient()
+  const { error } = await admin
+    .from('monitors')
+    .update({
+      snapshot_products: null,
+      snapshot_at: null,
+    })
+    .eq('id', monitorId)
+  if (error) throw error
+}
+
+function snapshotForSearch(monitor: MonitorSnapshotRow, searchId: string): Product[] {
+  if (monitor.snapshot_search_id !== searchId) return []
+  return monitor.snapshot_products ?? []
+}
+
 export function getFrozenSnapshot(
   monitor: MonitorSnapshotRow,
   plan: PlanConfig,
+  searchId: string,
   now = new Date(),
   force = false,
 ): Product[] | null {
   if (force) return null
+
+  const products = snapshotForSearch(monitor, searchId)
+  if (products.length === 0) return null
+
   if (!isSnapshotDue(monitor.snapshot_at, plan, now)) {
-    return monitor.snapshot_products ?? []
+    return products
   }
   return null
 }
@@ -73,4 +124,17 @@ export function sharedCacheStaleForPlan(
   if (!scrapedAt) return true
   const elapsedMin = (now.getTime() - new Date(scrapedAt).getTime()) / 60_000
   return elapsedMin >= plan.checkIntervalMinutes
+}
+
+/** Prefer monitor snapshot for this search, then shared search cache. */
+export function productFallback(
+  monitor: MonitorSnapshotRow,
+  cached: { products: Product[] } | null | undefined,
+  searchId: string,
+): Product[] {
+  const snapshot = snapshotForSearch(monitor, searchId)
+  if (snapshot.length > 0) return snapshot
+  const fromCache = cached?.products ?? []
+  if (fromCache.length > 0) return fromCache
+  return []
 }

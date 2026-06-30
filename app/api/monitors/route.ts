@@ -3,6 +3,7 @@ import type { Condition, SortBy } from '@/lib/product'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveSearch } from '@/lib/searches'
+import { clearMonitorSnapshot } from '@/lib/monitor-snapshot'
 import { countUserMonitors, getUserPlan } from '@/lib/plans-server'
 
 export const dynamic = 'force-dynamic'
@@ -102,6 +103,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const search = await resolveSearch(existing.query, DEFAULT_SORT, condition)
+    await clearMonitorSnapshot(id)
     const { data, error } = await admin
       .from('monitors')
       .update({ search_id: search.id })

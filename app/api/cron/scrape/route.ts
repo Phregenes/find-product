@@ -151,10 +151,14 @@ export async function GET(request: NextRequest) {
       if (needScrape) {
         const result = await searchProducts(search.query, search.sort_by, 1, search.condition)
         products = result.products
-        await writeCache(search.id, 1, products)
-        await writeHeartbeat('ml_scrape', 'ok', `Cron scrape OK: ${products.length} produtos`, {
-          query: search.query,
-        })
+        if (products.length > 0) {
+          await writeCache(search.id, 1, products)
+          await writeHeartbeat('ml_scrape', 'ok', `Cron scrape OK: ${products.length} produtos`, {
+            query: search.query,
+          })
+        } else if (cached?.products.length) {
+          products = cached.products
+        }
       } else {
         products = cached!.products
       }

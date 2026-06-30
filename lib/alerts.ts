@@ -89,7 +89,7 @@ export async function processMonitorAlerts(
     const seen = new Set((seenRows ?? []).map((r) => r.product_id as string))
     const newProducts = products.filter((p) => !seen.has(p.id))
 
-    await saveMonitorSnapshot(monitorId, products)
+    await saveMonitorSnapshot(monitorId, products, searchId)
 
     if (seen.size === 0 && products.length > 0) {
       await baselineMonitorSeen(monitorId, productIds)

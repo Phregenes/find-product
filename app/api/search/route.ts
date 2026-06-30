@@ -18,6 +18,7 @@ import {
 import {
   getFrozenSnapshot,
   loadMonitorSnapshot,
+  productFallback,
   saveMonitorSnapshot,
   sharedCacheStaleForPlan,
 } from '@/lib/monitor-snapshot'
@@ -109,7 +110,10 @@ export async function GET(request: NextRequest) {
       }
 
       const now = new Date()
-      const frozen = getFrozenSnapshot(monitor, plan, now, force)
+      const search = await resolveSearch(q, sort, condition)
+      const cached = await readCachePage(search.id, page)
+
+      const frozen = getFrozenSnapshot(monitor, plan, search.id, now, force)
       if (frozen) {
         const fetchedAt = monitor.snapshot_at
           ? new Date(monitor.snapshot_at).getTime()
@@ -125,12 +129,10 @@ export async function GET(request: NextRequest) {
         })
       }
 
-      const search = await resolveSearch(q, sort, condition)
-      const cached = await readCachePage(search.id, page)
       const isFirstScrape = !monitor.snapshot_at
 
       if (!force && !isFirstScrape && !isWithinActiveHours(plan, now)) {
-        const fallback = monitor.snapshot_products ?? cached?.products ?? []
+        const fallback = productFallback(monitor, cached, search.id)
         if (fallback.length > 0) {
           return jsonProducts(fallback, {
             q,
@@ -167,13 +169,28 @@ export async function GET(request: NextRequest) {
       } else {
         const { products: scraped, scrapedCount } = await searchProducts(q, sort, page, condition, exclude)
         products = scraped
-        await writeCache(search.id, page, products)
+        if (products.length > 0) {
+          await writeCache(search.id, page, products)
+          await writeHeartbeat('ml_scrape', 'ok', `Scrape OK: ${products.length} produtos`, { query: q })
+        }
         fetchedAt = Date.now()
-        await writeHeartbeat('ml_scrape', 'ok', `Scrape OK: ${products.length} produtos`, { query: q })
         void scrapedCount
       }
 
-      await saveMonitorSnapshot(monitorId, products)
+      if (products.length === 0) {
+        const fallback = productFallback(monitor, cached, search.id)
+        if (fallback.length > 0) {
+          products = fallback
+          fromCache = true
+          fetchedAt = monitor.snapshot_at
+            ? new Date(monitor.snapshot_at).getTime()
+            : cached
+              ? new Date(cached.scraped_at).getTime()
+              : Date.now()
+        }
+      } else {
+        await saveMonitorSnapshot(monitorId, products, search.id)
+      }
       const initialCatalog = await baselineFirstVisitIfNeeded(
         monitorId,
         products.map((p) => p.id),
@@ -221,8 +238,10 @@ export async function GET(request: NextRequest) {
     if (exclude.length === 0) {
       try {
         const search = await resolveSearch(q, sort, condition)
-        await writeCache(search.id, page, products)
-        await writeHeartbeat('ml_scrape', 'ok', `Scrape OK: ${products.length} produtos`, { query: q })
+        if (products.length > 0) {
+          await writeCache(search.id, page, products)
+          await writeHeartbeat('ml_scrape', 'ok', `Scrape OK: ${products.length} produtos`, { query: q })
+        }
       } catch (cacheErr) {
         console.error('[search] cache write failed:', (cacheErr as Error).message)
       }

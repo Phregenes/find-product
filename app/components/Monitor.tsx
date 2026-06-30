@@ -216,21 +216,27 @@ export default function MonitorApp() {
   const [viewState, setViewState] = useState<ViewState>(EMPTY_VIEW)
   const now = useNow()
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const activeIdRef = useRef<string | null>(null)
 
   const activeMonitor = activeId ? monitors.find((m) => m.id === activeId) ?? null : null
 
   // ── Fetch products for a monitor (page 1) ─────────────────────────────────
-  const fetchProducts = useCallback(async (monitor: MonitorWithSearch, options?: { force?: boolean }) => {
+  const fetchProducts = useCallback(async (
+    monitor: MonitorWithSearch,
+    options?: { force?: boolean; clearProducts?: boolean },
+  ) => {
+    const switchingMonitor = options?.clearProducts || monitor.id !== activeIdRef.current
+    activeIdRef.current = monitor.id
     setActiveId(monitor.id)
     setViewState((s) => ({
       ...s,
       loading: true,
       error: null,
-      products: [],
-      newIds: new Set(),
+      products: switchingMonitor ? [] : s.products,
+      newIds: switchingMonitor ? new Set() : s.newIds,
       page: 1,
       hasMore: true,
-      isInitialCatalog: false,
+      isInitialCatalog: switchingMonitor ? false : s.isInitialCatalog,
     }))
     const condition = monitor.searches?.condition ?? 'all'
     const forceParam = options?.force ? '&force=1' : ''
@@ -403,7 +409,7 @@ export default function MonitorApp() {
       await updateMonitorCondition(activeMonitor.id, val)
       const list = await refreshMonitors()
       const updated = list.find((m) => m.id === activeMonitor.id)
-      if (updated) fetchProducts(updated)
+      if (updated) fetchProducts(updated, { clearProducts: true })
     } catch (err) {
       setViewState((s) => ({ ...s, error: (err as Error).message }))
     }
@@ -690,6 +696,24 @@ export default function MonitorApp() {
 
         {/* Loading */}
         {viewState.loading && <Skeleton />}
+
+        {/* Empty results — scrape failed or no listings */}
+        {!viewState.loading && !viewState.error && activeMonitor && viewState.products.length === 0 && (
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-zinc-100 bg-white px-4 py-10 text-center dark:border-zinc-800 dark:bg-zinc-900">
+            <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
+              Nenhum anúncio encontrado para &ldquo;{activeMonitor.query}&rdquo;
+            </p>
+            <p className="max-w-sm text-xs text-zinc-500 dark:text-zinc-400">
+              Pode ser bloqueio temporário do ML ou instabilidade no scrape. Tente atualizar de novo.
+            </p>
+            <button
+              onClick={() => fetchProducts(activeMonitor, { force: true })}
+              className="mt-1 rounded-xl bg-yellow-400 px-4 py-2 text-sm font-semibold text-zinc-900 transition hover:bg-yellow-300"
+            >
+              Tentar novamente
+            </button>
+          </div>
+        )}
 
         {/* Products grid */}
         {!viewState.loading && viewState.products.length > 0 && (
