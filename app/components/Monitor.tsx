@@ -52,6 +52,17 @@ function productsToNewIds(products: Product[], seen: Set<string>): Set<string> {
   return new Set(products.filter((p) => !seen.has(p.id)).map((p) => p.id))
 }
 
+/** Keep the previous list when a background refresh returns nothing. */
+function resolveRefreshProducts(
+  previous: Product[],
+  incoming: Product[],
+  opts: { switching: boolean; force?: boolean },
+): Product[] {
+  if (incoming.length > 0) return incoming
+  if (opts.switching || opts.force) return incoming
+  return previous.length > 0 ? previous : incoming
+}
+
 function relativeTime(ts: number, now: number): string {
   if (ts === 0) return 'nunca'
   const diff = Math.floor((now - ts) / 1000)
@@ -250,17 +261,21 @@ export default function MonitorApp() {
       if (!res.ok || data.error || activeIdRef.current !== monitor.id) return
 
       const seen = await getSeenIds(monitor.id)
-      const products = (data.products as Product[]) ?? []
+      const incoming = (data.products as Product[]) ?? []
+      const prev = viewStateRef.current
+      const products = resolveRefreshProducts(prev.products, incoming, { switching: false })
       const newIds = productsToNewIds(products, seen)
 
-      setMonitors((prev) =>
-        prev.map((m) => (m.id === monitor.id ? { ...m, new_count: newIds.size } : m)),
+      setMonitors((prevMonitors) =>
+        prevMonitors.map((m) => (m.id === monitor.id ? { ...m, new_count: newIds.size } : m)),
       )
       setViewState((s) => ({
         ...s,
         products,
         newIds,
-        hasMore: data.mlPageFull ?? products.length >= ML_PAGE_STEP,
+        hasMore: incoming.length > 0
+          ? (data.mlPageFull ?? incoming.length >= ML_PAGE_STEP)
+          : s.hasMore,
       }))
     } catch (err) {
       if ((err as Error).name === 'AbortError') return
@@ -295,16 +310,21 @@ export default function MonitorApp() {
 
       const initialCatalog = !!data.initialCatalog
       const seen = await getSeenIds(monitor.id)
-      const products = (data.products as Product[]) ?? []
+      const incoming = (data.products as Product[]) ?? []
+      const prev = viewStateRef.current
+      const products = resolveRefreshProducts(prev.products, incoming, {
+        switching: switchingMonitor,
+        force: options?.force,
+      })
       const newIds = initialCatalog ? new Set<string>() : productsToNewIds(products, seen)
 
       if (initialCatalog) {
-        setMonitors((prev) =>
-          prev.map((m) => (m.id === monitor.id ? { ...m, new_count: 0 } : m)),
+        setMonitors((prevMonitors) =>
+          prevMonitors.map((m) => (m.id === monitor.id ? { ...m, new_count: 0 } : m)),
         )
       } else {
-        setMonitors((prev) =>
-          prev.map((m) => (m.id === monitor.id ? { ...m, new_count: newIds.size } : m)),
+        setMonitors((prevMonitors) =>
+          prevMonitors.map((m) => (m.id === monitor.id ? { ...m, new_count: newIds.size } : m)),
         )
       }
 
@@ -313,19 +333,25 @@ export default function MonitorApp() {
         products,
         newIds,
         page: 1,
-        hasMore: data.mlPageFull ?? products.length >= ML_PAGE_STEP,
+        hasMore: incoming.length > 0
+          ? (data.mlPageFull ?? incoming.length >= ML_PAGE_STEP)
+          : prev.hasMore,
         isInitialCatalog: initialCatalog,
       })
 
-      if (!initialCatalog) {
+      if (!initialCatalog && incoming.length > 0) {
         void discoverNew(monitor)
       }
     } catch (err) {
-      setViewState({
+      setViewState((s) => ({
         loading: false, loadingMore: false,
         error: (err as Error).message,
-        products: [], newIds: new Set(), page: 1, hasMore: false, isInitialCatalog: false,
-      })
+        products: switchingMonitor ? [] : s.products,
+        newIds: switchingMonitor ? new Set<string>() : s.newIds,
+        page: 1,
+        hasMore: switchingMonitor ? false : s.hasMore,
+        isInitialCatalog: switchingMonitor ? false : s.isInitialCatalog,
+      }))
     }
   }, [discoverNew])
 

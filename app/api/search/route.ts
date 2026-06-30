@@ -160,11 +160,14 @@ export async function GET(request: NextRequest) {
           const { page1, hasMore } = await discoverNewProducts(
             monitorId, q, sort, condition, 8,
           )
-          if (page1.length > 0) {
-            await writeCache(search.id, page, page1)
-            await saveMonitorSnapshot(monitorId, page1, search.id)
+          let page1Products = page1
+          if (page1Products.length > 0) {
+            await writeCache(search.id, page, page1Products)
+            await saveMonitorSnapshot(monitorId, page1Products, search.id)
+          } else {
+            page1Products = productFallback(monitor, cached, search.id)
           }
-          const merged = await mergeWithPendingNew(monitorId, page1.length > 0 ? page1 : [])
+          const merged = await mergeWithPendingNew(monitorId, page1Products)
           await updateMonitorNewCount(monitorId, merged.newCount)
           return jsonProducts(merged.products, {
             q,

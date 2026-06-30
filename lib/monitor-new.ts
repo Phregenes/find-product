@@ -84,6 +84,9 @@ export async function prunePendingNewProducts(
   scannedIds: Set<string>,
 ): Promise<Product[]> {
   const pending = await loadPendingNewProducts(monitorId)
+  // Failed/empty scrape — keep pending rather than wiping the list.
+  if (scannedIds.size === 0) return pending
+
   const kept = pending.filter((p) => scannedIds.has(p.id))
   if (kept.length !== pending.length) {
     await replacePendingNewProducts(monitorId, kept)
