@@ -208,6 +208,7 @@ export default function MonitorApp() {
   const [monitors, setMonitors] = useState<MonitorWithSearch[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [displayName, setDisplayName] = useState<string | null>(null)
   const [planUsage, setPlanUsage] = useState<PlanUsage | null>(null)
   const [searchInput, setSearchInput] = useState('')
   const [intervalMin, setIntervalMin] = useState(30)
@@ -295,6 +296,10 @@ export default function MonitorApp() {
   useEffect(() => {
     const supabase = createClient()
     supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? null))
+    fetch('/api/profile')
+      .then((r) => r.json())
+      .then((data) => setDisplayName(data.profile?.display_name ?? null))
+      .catch(() => {})
 
     fetch('/api/plan')
       .then((r) => r.json())
@@ -460,12 +465,20 @@ export default function MonitorApp() {
           {/* Account menu */}
           <div className="group relative shrink-0">
             <button className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-200 text-xs font-bold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-              {(userEmail?.[0] ?? '?').toUpperCase()}
+              {(displayName?.[0] ?? userEmail?.[0] ?? '?').toUpperCase()}
             </button>
             <div className="absolute right-0 top-9 z-30 hidden w-48 flex-col rounded-xl border border-zinc-200 bg-white p-1 shadow-lg group-hover:flex dark:border-zinc-700 dark:bg-zinc-900">
-              {userEmail && (
-                <span className="truncate px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">{userEmail}</span>
+              {(displayName || userEmail) && (
+                <span className="truncate px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">
+                  {displayName || userEmail}
+                </span>
               )}
+              <Link
+                href="/app/configuracoes"
+                className="rounded-lg px-3 py-2 text-left text-sm text-zinc-700 transition hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                Configurações
+              </Link>
               <button
                 onClick={handleSignOut}
                 className="rounded-lg px-3 py-2 text-left text-sm text-red-600 transition hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"

@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server'
-import type { Condition, Product, SortBy } from '@/lib/product'
+import type { Condition, SortBy } from '@/lib/product'
 import { searchProducts } from '@/lib/scraper'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { writeCache } from '@/lib/searches'
+import { processMonitorAlerts } from '@/lib/alerts'
 import {
   type PlanConfig,
   type PlanId,
@@ -97,6 +98,8 @@ export async function GET(request: NextRequest) {
     skipped?: boolean
     intervalMin?: number
     error?: string
+    emailsSent?: number
+    alerts?: Array<{ monitorId: string; newCount: number; emailed: boolean }>
   }> = []
 
   for (const search of targets) {
@@ -121,12 +124,19 @@ export async function GET(request: NextRequest) {
         search.condition,
       )
       await writeCache(search.id, 1, products)
-      await updateMonitorCounts(admin, search.id, products)
+      const alerts = await processMonitorAlerts(search.id, products)
+      const emailsSent = alerts.filter((a) => a.emailed).length
       results.push({
         search_id: search.id,
         query: search.query,
         scraped: products.length,
         intervalMin,
+        emailsSent,
+        alerts: alerts.map((a) => ({
+          monitorId: a.monitorId,
+          newCount: a.newCount,
+          emailed: a.emailed,
+        })),
       })
     } catch (err) {
       results.push({
@@ -141,34 +151,7 @@ export async function GET(request: NextRequest) {
 
   const ran = results.filter((r) => !r.skipped && !r.error).length
   const skipped = results.filter((r) => r.skipped).length
+  const emailsSent = results.reduce((sum, r) => sum + (r.emailsSent ?? 0), 0)
 
-  return Response.json({ ran, skipped, total: targets.length, results, at: now.toISOString() })
-}
-
-async function updateMonitorCounts(
-  admin: ReturnType<typeof createAdminClient>,
-  searchId: string,
-  products: Product[],
-): Promise<void> {
-  const { data: monitors } = await admin
-    .from('monitors')
-    .select('id')
-    .eq('search_id', searchId)
-
-  const productIds = products.map((p) => p.id)
-  const now = new Date().toISOString()
-
-  for (const m of monitors ?? []) {
-    const monitorId = (m as { id: string }).id
-    const { data: seenRows } = await admin
-      .from('monitor_seen_products')
-      .select('product_id')
-      .eq('monitor_id', monitorId)
-    const seen = new Set((seenRows ?? []).map((r: { product_id: string }) => r.product_id))
-    const newCount = productIds.filter((id) => !seen.has(id)).length
-    await admin
-      .from('monitors')
-      .update({ new_count: newCount, last_checked_at: now })
-      .eq('id', monitorId)
-  }
+  return Response.json({ ran, skipped, emailsSent, total: targets.length, results, at: now.toISOString() })
 }
