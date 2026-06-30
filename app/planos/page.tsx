@@ -3,9 +3,15 @@ import SiteHeader from '@/app/components/SiteHeader'
 import PlanCard from '@/app/components/PlanCard'
 import { PLAN_LIST } from '@/lib/plans'
 
+import { SITE_DESCRIPTION, SITE_NAME } from '@/lib/site'
+
 export const metadata = {
-  title: 'Planos — FindProduct',
-  description: 'Compare os planos do FindProduct para monitorar o Mercado Livre.',
+  title: 'Planos e preços',
+  description: `Compare os planos do ${SITE_NAME}. Comece grátis com 1 monitor ou escolha Garimpo, Lojista ou Pro para mais cobertura no Mercado Livre.`,
+  openGraph: {
+    title: `Planos e preços | ${SITE_NAME}`,
+    description: SITE_DESCRIPTION,
+  },
 }
 
 export default function PlanosPage() {

@@ -124,7 +124,10 @@ export default function HomePage() {
       </main>
 
       <footer className="mt-auto border-t border-zinc-200 py-6 text-center text-xs text-zinc-400 dark:border-zinc-800">
-        FindProduct · Monitoramento Mercado Livre
+        FindProduct · Monitoramento Mercado Livre ·{' '}
+        <Link href="/status" className="hover:text-zinc-600 dark:hover:text-zinc-300">
+          Status do sistema
+        </Link>
       </footer>
     </div>
   )

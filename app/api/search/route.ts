@@ -21,6 +21,7 @@ import {
   saveMonitorSnapshot,
   sharedCacheStaleForPlan,
 } from '@/lib/monitor-snapshot'
+import { writeHeartbeat } from '@/lib/ops'
 import type { Product } from '@/lib/product'
 
 export const dynamic = 'force-dynamic'
@@ -164,6 +165,7 @@ export async function GET(request: NextRequest) {
         products = scraped
         await writeCache(search.id, page, products)
         fetchedAt = Date.now()
+        await writeHeartbeat('ml_scrape', 'ok', `Scrape OK: ${products.length} produtos`, { query: q })
         void scrapedCount
       }
 
@@ -211,6 +213,7 @@ export async function GET(request: NextRequest) {
       try {
         const search = await resolveSearch(q, sort, condition)
         await writeCache(search.id, page, products)
+        await writeHeartbeat('ml_scrape', 'ok', `Scrape OK: ${products.length} produtos`, { query: q })
       } catch (cacheErr) {
         console.error('[search] cache write failed:', (cacheErr as Error).message)
       }
@@ -227,8 +230,9 @@ export async function GET(request: NextRequest) {
       fromCache: false,
     })
   } catch (err) {
-    const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err)
+    const msg = err instanceof Error ? err.message : String(err)
     console.error('[search] error:', msg)
+    await writeHeartbeat('ml_scrape', 'error', msg.slice(0, 500)).catch(() => {})
     return Response.json({ error: msg }, { status: 500 })
   }
 }

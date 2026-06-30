@@ -4,6 +4,7 @@ import { searchProducts } from '@/lib/scraper'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { writeCache, readCachePage } from '@/lib/searches'
 import { processMonitorAlerts } from '@/lib/alerts'
+import { writeHeartbeat } from '@/lib/ops'
 import {
   type PlanConfig,
   type PlanId,
@@ -151,6 +152,9 @@ export async function GET(request: NextRequest) {
         const result = await searchProducts(search.query, search.sort_by, 1, search.condition)
         products = result.products
         await writeCache(search.id, 1, products)
+        await writeHeartbeat('ml_scrape', 'ok', `Cron scrape OK: ${products.length} produtos`, {
+          query: search.query,
+        })
       } else {
         products = cached!.products
       }
@@ -172,12 +176,14 @@ export async function GET(request: NextRequest) {
         })),
       })
     } catch (err) {
+      const errMsg = (err as Error).message
+      await writeHeartbeat('ml_scrape', 'error', errMsg.slice(0, 500)).catch(() => {})
       results.push({
         search_id: search.id,
         query: search.query,
         scraped: 0,
         dueMonitors: dueMonitors.length,
-        error: (err as Error).message,
+        error: errMsg,
       })
     }
   }
@@ -185,6 +191,16 @@ export async function GET(request: NextRequest) {
   const ran = results.filter((r) => !r.skipped && !r.error).length
   const skipped = results.filter((r) => r.skipped).length
   const emailsSent = results.reduce((sum, r) => sum + (r.emailsSent ?? 0), 0)
+  const errors = results.filter((r) => r.error).length
+
+  await writeHeartbeat(
+    'cron_scrape',
+    errors > 0 ? 'error' : ran > 0 || skipped > 0 ? 'ok' : 'degraded',
+    errors > 0
+      ? `${errors} busca(s) com erro na última execução`
+      : `Executado: ${ran} scrape(s), ${skipped} ignorado(s)`,
+    { ran, skipped, emailsSent, errors, total: targets.length },
+  )
 
   return Response.json({ ran, skipped, emailsSent, total: targets.length, results, at: now.toISOString() })
 }
