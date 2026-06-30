@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
-import type { Condition, SortBy } from '@/lib/product'
-import { searchProducts } from '@/lib/scraper'
+import type { Condition, SortBy, Product } from '@/lib/product'
+import { scrapeSearchPages, ML_PAGE_STEP } from '@/lib/scraper'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { writeCache, readCachePage } from '@/lib/searches'
 import { processMonitorAlerts } from '@/lib/alerts'
@@ -147,29 +147,53 @@ export async function GET(request: NextRequest) {
       const cached = await readCachePage(search.id, 1)
       const needScrape = !cached || sharedCacheStaleForDueMonitors(search.last_scraped_at, dueMonitors, now)
 
-      let products
+      let page1: Product[]
+      let allPages: Product[]
+      let hasMore = false
+
       if (needScrape) {
-        const result = await searchProducts(search.query, search.sort_by, 1, search.condition)
-        products = result.products
-        if (products.length > 0) {
-          await writeCache(search.id, 1, products)
-          await writeHeartbeat('ml_scrape', 'ok', `Cron scrape OK: ${products.length} produtos`, {
+        const scraped = await scrapeSearchPages(search.query, search.sort_by, search.condition, 8, 1)
+        page1 = scraped.page1
+        allPages = scraped.allPages
+        hasMore = scraped.hasMore
+        if (page1.length > 0) {
+          await writeCache(search.id, 1, page1)
+          await writeHeartbeat('ml_scrape', 'ok', `Cron scrape OK: ${page1.length} produtos (+${allPages.length - page1.length} págs.)`, {
             query: search.query,
           })
         } else if (cached?.products.length) {
-          products = cached.products
+          page1 = cached.products
+          allPages = cached.products
+          hasMore = page1.length >= ML_PAGE_STEP
+        } else {
+          page1 = []
+          allPages = []
         }
       } else {
-        products = cached!.products
+        page1 = cached!.products
+        allPages = cached!.products
+        hasMore = page1.length >= ML_PAGE_STEP
+        if (hasMore) {
+          const extra = await scrapeSearchPages(search.query, search.sort_by, search.condition, 7, 2)
+          const known = new Set(page1.map((p) => p.id))
+          allPages = [...page1]
+          for (const p of extra.allPages) {
+            if (!known.has(p.id)) {
+              known.add(p.id)
+              allPages.push(p)
+            }
+          }
+          hasMore = extra.hasMore
+        }
       }
 
-      const alerts = await processMonitorAlerts(search.id, products, now)
+      const alerts = await processMonitorAlerts(search.id, allPages, page1, now)
       const emailsSent = alerts.filter((a) => a.emailed).length
 
       results.push({
         search_id: search.id,
         query: search.query,
-        scraped: products.length,
+        scraped: page1.length,
         dueMonitors: dueMonitors.length,
         emailsSent,
         alerts: alerts.map((a) => ({

@@ -243,6 +243,58 @@ export async function searchProducts(
   }
 }
 
+/** Scrape consecutive ML pages in one browser session (deduped, page order). */
+export async function scrapeSearchPages(
+  query: string,
+  sortBy: SortBy = 'recent',
+  condition: Condition = 'all',
+  maxPages = 8,
+  startPage = 1,
+): Promise<{ page1: Product[]; allPages: Product[]; hasMore: boolean }> {
+  const browser = await launchBrowser()
+
+  try {
+    const context = await createScrapeContext(browser)
+    const browserPage = await context.newPage()
+    const allPages: Product[] = []
+    const seen = new Set<string>()
+    let page1: Product[] = []
+    let hasMore = false
+
+    for (let attempt = 0; attempt < maxPages; attempt++) {
+      const page = startPage + attempt
+      const products = await loadSearchPage(
+        browserPage,
+        buildSearchUrl(query, sortBy, page, condition),
+      )
+
+      hasMore = products.length >= ML_PAGE_STEP
+
+      if (page === startPage) page1 = products
+
+      for (const p of products) {
+        if (!seen.has(p.id)) {
+          seen.add(p.id)
+          allPages.push(p)
+        }
+      }
+
+      if (!hasMore) break
+    }
+
+    const now = Date.now()
+    const stamp = (list: Product[]) => list.map((p) => ({ ...p, detectedAt: now }))
+
+    return {
+      page1: stamp(page1),
+      allPages: stamp(allPages),
+      hasMore,
+    }
+  } finally {
+    await browser.close()
+  }
+}
+
 /** Walk ML pages in one browser session until enough new (unseen) products are found. */
 export async function searchMoreProducts(
   query: string,

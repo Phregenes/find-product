@@ -48,6 +48,10 @@ function mergeProducts(existing: Product[], incoming: Product[]): Product[] {
   return merged
 }
 
+function productsToNewIds(products: Product[], seen: Set<string>): Set<string> {
+  return new Set(products.filter((p) => !seen.has(p.id)).map((p) => p.id))
+}
+
 function relativeTime(ts: number, now: number): string {
   if (ts === 0) return 'nunca'
   const diff = Math.floor((now - ts) / 1000)
@@ -217,12 +221,52 @@ export default function MonitorApp() {
   const now = useNow()
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const activeIdRef = useRef<string | null>(null)
+  const viewStateRef = useRef<ViewState>(EMPTY_VIEW)
+  const discoverAbortRef = useRef<AbortController | null>(null)
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
 
   const activeMonitor = activeId ? monitors.find((m) => m.id === activeId) ?? null : null
 
+  useEffect(() => {
+    viewStateRef.current = viewState
+  }, [viewState])
+
   // ── Fetch products for a monitor (page 1) ─────────────────────────────────
+  const discoverNew = useCallback(async (monitor: MonitorWithSearch) => {
+    if (activeIdRef.current !== monitor.id) return
+
+    discoverAbortRef.current?.abort()
+    const controller = new AbortController()
+    discoverAbortRef.current = controller
+
+    const condition = monitor.searches?.condition ?? 'all'
+    try {
+      const res = await fetch(
+        `/api/search?q=${encodeURIComponent(monitor.query)}&sort=recent&page=1&condition=${condition}&monitorId=${encodeURIComponent(monitor.id)}&discover=1`,
+        { signal: controller.signal },
+      )
+      const data = await res.json()
+      if (!res.ok || data.error || activeIdRef.current !== monitor.id) return
+
+      const seen = await getSeenIds(monitor.id)
+      const products = (data.products as Product[]) ?? []
+      const newIds = productsToNewIds(products, seen)
+
+      setMonitors((prev) =>
+        prev.map((m) => (m.id === monitor.id ? { ...m, new_count: newIds.size } : m)),
+      )
+      setViewState((s) => ({
+        ...s,
+        products,
+        newIds,
+        hasMore: data.mlPageFull ?? products.length >= ML_PAGE_STEP,
+      }))
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return
+    }
+  }, [])
+
   const fetchProducts = useCallback(async (
     monitor: MonitorWithSearch,
     options?: { force?: boolean; clearProducts?: boolean },
@@ -235,7 +279,7 @@ export default function MonitorApp() {
       loading: true,
       error: null,
       products: switchingMonitor ? [] : s.products,
-      newIds: switchingMonitor ? new Set() : s.newIds,
+      newIds: switchingMonitor ? new Set<string>() : s.newIds,
       page: 1,
       hasMore: true,
       isInitialCatalog: switchingMonitor ? false : s.isInitialCatalog,
@@ -249,23 +293,18 @@ export default function MonitorApp() {
       const data = await res.json()
       if (!res.ok || data.error) throw new Error(data.error ?? 'Erro ao buscar')
 
-      const products = (data.products as Product[]) ?? []
       const initialCatalog = !!data.initialCatalog
       const seen = await getSeenIds(monitor.id)
-
-      let newIds: Set<string>
-      if (initialCatalog) {
-        newIds = new Set()
-      } else if (seen.size === 0 && products.length > 0) {
-        await addSeenIds(monitor.id, products.map((p) => p.id))
-        newIds = new Set()
-      } else {
-        newIds = new Set(products.filter((p) => !seen.has(p.id)).map((p) => p.id))
-      }
+      const products = (data.products as Product[]) ?? []
+      const newIds = initialCatalog ? new Set<string>() : productsToNewIds(products, seen)
 
       if (initialCatalog) {
         setMonitors((prev) =>
           prev.map((m) => (m.id === monitor.id ? { ...m, new_count: 0 } : m)),
+        )
+      } else {
+        setMonitors((prev) =>
+          prev.map((m) => (m.id === monitor.id ? { ...m, new_count: newIds.size } : m)),
         )
       }
 
@@ -275,8 +314,12 @@ export default function MonitorApp() {
         newIds,
         page: 1,
         hasMore: data.mlPageFull ?? products.length >= ML_PAGE_STEP,
-        isInitialCatalog: initialCatalog || (seen.size === 0 && products.length > 0),
+        isInitialCatalog: initialCatalog,
       })
+
+      if (!initialCatalog) {
+        void discoverNew(monitor)
+      }
     } catch (err) {
       setViewState({
         loading: false, loadingMore: false,
@@ -284,7 +327,7 @@ export default function MonitorApp() {
         products: [], newIds: new Set(), page: 1, hasMore: false, isInitialCatalog: false,
       })
     }
-  }, [])
+  }, [discoverNew])
 
   // ── Load more ──────────────────────────────────────────────────────────────
   const loadMore = useCallback(async (monitor: MonitorWithSearch, nextPage: number) => {
@@ -297,18 +340,29 @@ export default function MonitorApp() {
       })
       const exclude = current.map((p) => p.id).join(',')
       const res = await fetch(
-        `/api/search?q=${encodeURIComponent(monitor.query)}&sort=recent&page=${nextPage}&condition=${condition}&exclude=${exclude}&minNew=20`,
+        `/api/search?q=${encodeURIComponent(monitor.query)}&sort=recent&page=${nextPage}&condition=${condition}&exclude=${exclude}&minNew=20&monitorId=${encodeURIComponent(monitor.id)}`,
       )
       const data = await res.json()
       if (!res.ok || data.error) throw new Error(data.error)
       const incoming = data.products as Product[]
-      setViewState((s) => ({
-        ...s,
-        loadingMore: false,
-        products: mergeProducts(s.products, incoming),
-        page: data.page ?? nextPage,
-        hasMore: data.mlPageFull === true,
-      }))
+      const seen = await getSeenIds(monitor.id)
+      setViewState((s) => {
+        const merged = mergeProducts(s.products, incoming)
+        const newIds = productsToNewIds(merged, seen)
+        if (activeIdRef.current === monitor.id) {
+          setMonitors((prev) =>
+            prev.map((m) => (m.id === monitor.id ? { ...m, new_count: newIds.size } : m)),
+          )
+        }
+        return {
+          ...s,
+          loadingMore: false,
+          products: merged,
+          newIds,
+          page: data.page ?? nextPage,
+          hasMore: data.mlPageFull === true,
+        }
+      })
     } catch {
       setViewState((s) => ({ ...s, loadingMore: false, hasMore: false }))
     }
@@ -404,8 +458,8 @@ export default function MonitorApp() {
   }
 
   async function handleMarkSeen() {
-    if (!activeMonitor) return
-    await addSeenIds(activeMonitor.id, viewState.products.map((p) => p.id)).catch(() => {})
+    if (!activeMonitor || viewState.newIds.size === 0) return
+    await addSeenIds(activeMonitor.id, [...viewState.newIds]).catch(() => {})
     setViewState((s) => ({ ...s, newIds: new Set(), isInitialCatalog: false }))
     setMonitors((prev) => prev.map((m) => (m.id === activeMonitor.id ? { ...m, new_count: 0 } : m)))
   }
@@ -767,7 +821,11 @@ export default function MonitorApp() {
             <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
               {viewState.products
                 .slice()
-                .sort((a, b) => (viewState.newIds.has(b.id) ? 1 : 0) - (viewState.newIds.has(a.id) ? 1 : 0))
+                .sort((a, b) => {
+                  const aNew = viewState.newIds.has(a.id) ? 1 : 0
+                  const bNew = viewState.newIds.has(b.id) ? 1 : 0
+                  return bNew - aNew
+                })
                 .map((product) => (
                   <ProductCard key={product.id} product={product} isNew={viewState.newIds.has(product.id)} />
                 ))}

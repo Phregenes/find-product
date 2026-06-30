@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { sendNewProductsEmail } from '@/lib/email/send'
 import { saveMonitorSnapshot } from '@/lib/monitor-snapshot'
 import { baselineMonitorSeen } from '@/lib/monitor-seen'
+import { syncPendingNewProducts } from '@/lib/monitor-new'
 import { sameItemIdSet } from '@/lib/notification-fingerprint'
 
 export interface MonitorAlertResult {
@@ -30,7 +31,8 @@ interface MonitorRow {
 /** Update snapshots, counts and emails — only for monitors due on their plan interval. */
 export async function processMonitorAlerts(
   searchId: string,
-  products: Product[],
+  allProducts: Product[],
+  page1Products: Product[],
   now = new Date(),
 ): Promise<MonitorAlertResult[]> {
   const admin = createAdminClient()
@@ -61,7 +63,7 @@ export async function processMonitorAlerts(
     ]),
   )
 
-  const productIds = products.map((p) => p.id)
+  const productIds = allProducts.map((p) => p.id)
 
   for (const monitor of monitors as MonitorRow[]) {
     const monitorId = monitor.id
@@ -90,11 +92,11 @@ export async function processMonitorAlerts(
     if (sErr) throw sErr
 
     const seen = new Set((seenRows ?? []).map((r) => r.product_id as string))
-    const newProducts = products.filter((p) => !seen.has(p.id))
+    const newProducts = allProducts.filter((p) => !seen.has(p.id))
 
-    await saveMonitorSnapshot(monitorId, products, searchId)
+    await saveMonitorSnapshot(monitorId, page1Products, searchId)
 
-    if (seen.size === 0 && products.length > 0) {
+    if (seen.size === 0 && allProducts.length > 0) {
       await baselineMonitorSeen(monitorId, productIds)
       await admin.from('monitors').update({ new_count: 0 }).eq('id', monitorId)
       results.push({ monitorId, query, newCount: 0, emailed: false, baselined: true })
@@ -104,6 +106,10 @@ export async function processMonitorAlerts(
     const newCount = newProducts.length
     const newProductIds = newProducts.map((p) => p.id)
     const lastNotifiedIds = monitor.last_notified_item_ids ?? []
+
+    if (newCount > 0) {
+      await syncPendingNewProducts(monitorId, newProducts)
+    }
 
     await admin.from('monitors').update({ new_count: newCount }).eq('id', monitorId)
 

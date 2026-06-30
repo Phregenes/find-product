@@ -2,6 +2,16 @@ import 'server-only'
 
 import { createAdminClient } from '@/lib/supabase/admin'
 
+export async function getMonitorSeenIds(monitorId: string): Promise<Set<string>> {
+  const admin = createAdminClient()
+  const { data, error } = await admin
+    .from('monitor_seen_products')
+    .select('product_id')
+    .eq('monitor_id', monitorId)
+  if (error) throw error
+  return new Set((data ?? []).map((r) => r.product_id as string))
+}
+
 export async function countSeenProducts(monitorId: string): Promise<number> {
   const admin = createAdminClient()
   const { count, error } = await admin

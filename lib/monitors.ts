@@ -91,12 +91,13 @@ export async function getSeenIds(monitorId: string): Promise<Set<string>> {
 
 export async function addSeenIds(monitorId: string, productIds: string[]): Promise<void> {
   if (productIds.length === 0) return
-  const supabase = createClient()
-  const rows = productIds.map((product_id) => ({ monitor_id: monitorId, product_id }))
-  const { error } = await supabase
-    .from('monitor_seen_products')
-    .upsert(rows, { onConflict: 'monitor_id,product_id', ignoreDuplicates: true })
-  if (error) throw error
+  const res = await fetch('/api/monitors/mark-seen', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ monitorId, productIds }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error ?? 'Erro ao marcar vistos')
 }
 
 /** Read the shared scrape cache for a search (most recent pages first). */
