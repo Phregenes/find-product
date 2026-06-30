@@ -30,6 +30,7 @@ import {
 } from '@/lib/monitor-new'
 import { writeHeartbeat } from '@/lib/ops'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { toErrorMessage } from '@/lib/error-message'
 import type { Product } from '@/lib/product'
 
 export const dynamic = 'force-dynamic'
@@ -320,7 +321,7 @@ export async function GET(request: NextRequest) {
       fromCache: false,
     })
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
+    const msg = toErrorMessage(err)
     console.error('[search] error:', msg)
     await writeHeartbeat('ml_scrape', 'error', msg.slice(0, 500)).catch(() => {})
     return Response.json({ error: msg }, { status: 500 })

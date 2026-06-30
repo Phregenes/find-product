@@ -7,7 +7,10 @@ import { sendNewProductsEmail } from '@/lib/email/send'
 import { saveMonitorSnapshot } from '@/lib/monitor-snapshot'
 import { baselineMonitorSeen } from '@/lib/monitor-seen'
 import { syncPendingNewProducts } from '@/lib/monitor-new'
-import { sameItemIdSet } from '@/lib/notification-fingerprint'
+import {
+  filterNotYetNotified,
+  shouldSkipDuplicateEmail,
+} from '@/lib/notification-fingerprint'
 
 export interface MonitorAlertResult {
   monitorId: string
@@ -121,13 +124,14 @@ export async function processMonitorAlerts(
       newCount > 0 && profile.email && profile.emailAlerts && plan.emailAlerts
 
     if (canEmail) {
-      if (sameItemIdSet(newProductIds, lastNotifiedIds)) {
+      if (shouldSkipDuplicateEmail(newProductIds, lastNotifiedIds)) {
         emailSkippedDuplicate = true
       } else {
+        const toNotify = filterNotYetNotified(newProducts, lastNotifiedIds)
         const send = await sendNewProductsEmail({
           to: profile.email!,
           monitorQuery: query,
-          products: newProducts,
+          products: toNotify.length > 0 ? toNotify : newProducts,
         })
         emailed = send.ok
         if (!send.ok) emailError = send.error

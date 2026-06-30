@@ -2,6 +2,7 @@ import 'server-only'
 
 import type { Product } from '@/lib/product'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { toErrorMessage } from '@/lib/error-message'
 import type { Condition, SortBy } from '@/lib/product'
 import { scrapeSearchPages } from '@/lib/scraper'
 import { getMonitorSeenIds } from '@/lib/monitor-seen'
@@ -14,7 +15,7 @@ export async function loadPendingNewProducts(monitorId: string): Promise<Product
     .select('product, found_at')
     .eq('monitor_id', monitorId)
     .order('found_at', { ascending: false })
-  if (error) throw error
+  if (error) throw new Error(toErrorMessage(error))
   return (data ?? []).map((row) => row.product as Product)
 }
 
@@ -27,7 +28,7 @@ export async function replacePendingNewProducts(
     .from('monitor_new_products')
     .delete()
     .eq('monitor_id', monitorId)
-  if (delErr) throw delErr
+  if (delErr) throw new Error(toErrorMessage(delErr))
   if (products.length === 0) return
 
   const now = new Date().toISOString()
@@ -38,7 +39,7 @@ export async function replacePendingNewProducts(
     found_at: now,
   }))
   const { error } = await admin.from('monitor_new_products').insert(rows)
-  if (error) throw error
+  if (error) throw new Error(toErrorMessage(error))
 }
 
 /** Merge freshly discovered unseen listings into pending storage. */
@@ -74,7 +75,7 @@ export async function clearPendingNewProducts(
     .delete()
     .eq('monitor_id', monitorId)
     .in('product_id', productIds)
-  if (error) throw error
+  if (error) throw new Error(toErrorMessage(error))
 }
 
 /** Drop pending items that no longer appear anywhere in the scanned ML pages. */
