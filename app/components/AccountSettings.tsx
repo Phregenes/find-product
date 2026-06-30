@@ -128,7 +128,7 @@ export default function AccountSettings() {
                     type="email"
                     value={profile?.email ?? ''}
                     disabled
-                    className="rounded-xl border border-zinc-200 bg-zinc-100 px-4 py-2.5 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800"
+                    className="rounded-xl border border-zinc-200 bg-zinc-100 px-4 py-2.5 text-sm text-zinc-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-400"
                   />
                 </div>
 
@@ -143,7 +143,7 @@ export default function AccountSettings() {
                     onChange={(e) => setDisplayName(e.target.value)}
                     placeholder="Como quer ser chamado"
                     maxLength={80}
-                    className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2.5 text-sm outline-none transition focus:border-yellow-400 focus:bg-white focus:ring-2 focus:ring-yellow-400/30 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+                    className="form-input"
                   />
                 </div>
 
@@ -196,7 +196,7 @@ export default function AccountSettings() {
                   value={confirmDelete}
                   onChange={(e) => setConfirmDelete(e.target.value)}
                   placeholder="DELETAR"
-                  className="max-w-xs rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2.5 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-400/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+                  className="form-input max-w-xs focus:border-red-400 focus:ring-red-400/20"
                 />
                 <button
                   type="button"

@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { validateEmail } from '@/lib/validation'
 
 type Mode = 'login' | 'register'
 
@@ -12,16 +13,35 @@ export default function AuthForm({ mode }: { mode: Mode }) {
   const searchParams = useSearchParams()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
+  const [failedAttempts, setFailedAttempts] = useState(0)
+  const [emailError, setEmailError] = useState<string | null>(null)
 
   const isLogin = mode === 'login'
+  const showResetLink = isLogin && failedAttempts >= 3
+  const resetPasswordHref = `/recuperar-senha${email ? `?email=${encodeURIComponent(email)}` : ''}`
+
+  useEffect(() => {
+    const urlError = searchParams.get('error')
+    if (urlError) setError(urlError)
+  }, [searchParams])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
     setInfo(null)
+
+    const trimmedEmail = email.trim()
+    const emailValidationError = validateEmail(trimmedEmail)
+    if (emailValidationError) {
+      setEmailError(emailValidationError)
+      setError(emailValidationError)
+      return
+    }
+
     setLoading(true)
 
     const supabase = createClient()
@@ -29,12 +49,19 @@ export default function AuthForm({ mode }: { mode: Mode }) {
 
     try {
       if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({ email, password })
+        const { error } = await supabase.auth.signInWithPassword({ email: trimmedEmail, password })
         if (error) throw error
+        setFailedAttempts(0)
         router.push(redirectTo)
         router.refresh()
       } else {
-        const { data, error } = await supabase.auth.signUp({ email, password })
+        if (password !== confirmPassword) {
+          setError('As senhas não coincidem.')
+          setLoading(false)
+          return
+        }
+
+        const { data, error } = await supabase.auth.signUp({ email: trimmedEmail, password })
         if (error) throw error
         // If email confirmation is disabled, a session is returned immediately.
         if (data.session) {
@@ -45,7 +72,11 @@ export default function AuthForm({ mode }: { mode: Mode }) {
         }
       }
     } catch (err) {
-      setError(translateError((err as Error).message))
+      const message = (err as Error).message
+      setError(translateError(message))
+      if (isLogin && message.toLowerCase().includes('invalid login credentials')) {
+        setFailedAttempts((n) => n + 1)
+      }
     } finally {
       setLoading(false)
     }
@@ -79,11 +110,22 @@ export default function AuthForm({ mode }: { mode: Mode }) {
               id="email"
               type="email"
               required
+              autoComplete="email"
+              inputMode="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value)
+                setFailedAttempts(0)
+                if (emailError) setEmailError(null)
+              }}
+              onBlur={() => setEmailError(email.trim() ? validateEmail(email) : null)}
               placeholder="voce@email.com"
-              className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2.5 text-sm outline-none transition focus:border-yellow-400 focus:bg-white focus:ring-2 focus:ring-yellow-400/30 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+              aria-invalid={!!emailError}
+              className={`form-input ${emailError ? 'form-input-error' : ''}`}
             />
+            {emailError && (
+              <span className="text-[11px] text-red-600 dark:text-red-400">{emailError}</span>
+            )}
           </div>
 
           <div className="flex flex-col gap-1.5">
@@ -98,16 +140,42 @@ export default function AuthForm({ mode }: { mode: Mode }) {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2.5 text-sm outline-none transition focus:border-yellow-400 focus:bg-white focus:ring-2 focus:ring-yellow-400/30 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+              className="form-input"
             />
             {!isLogin && (
               <span className="text-[11px] text-zinc-400">Mínimo de 6 caracteres</span>
             )}
           </div>
 
+          {!isLogin && (
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="confirmPassword" className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                Confirmar senha
+              </label>
+              <input
+                id="confirmPassword"
+                type="password"
+                required
+                minLength={6}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="••••••••"
+                className="form-input"
+              />
+            </div>
+          )}
+
           {error && (
             <div className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/30 dark:bg-red-950/20 dark:text-red-400">
               {error}
+              {showResetLink && (
+                <p className="mt-2 border-t border-red-200/60 pt-2 dark:border-red-900/40">
+                  Esqueceu a senha?{' '}
+                  <Link href={resetPasswordHref} className="font-semibold text-yellow-700 hover:underline dark:text-yellow-400">
+                    Redefinir senha
+                  </Link>
+                </p>
+              )}
             </div>
           )}
           {info && (

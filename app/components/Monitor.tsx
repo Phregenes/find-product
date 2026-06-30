@@ -217,6 +217,8 @@ export default function MonitorApp() {
   const now = useNow()
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const activeIdRef = useRef<string | null>(null)
+  const accountMenuRef = useRef<HTMLDivElement>(null)
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false)
 
   const activeMonitor = activeId ? monitors.find((m) => m.id === activeId) ?? null : null
 
@@ -356,6 +358,21 @@ export default function MonitorApp() {
     setPlanUsage((u) => (u ? { ...u, monitors: monitors.length } : u))
   }, [monitors.length])
 
+  useEffect(() => {
+    if (!accountMenuOpen) return
+    function closeOnOutside(event: MouseEvent | TouchEvent) {
+      if (accountMenuRef.current && !accountMenuRef.current.contains(event.target as Node)) {
+        setAccountMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', closeOnOutside)
+    document.addEventListener('touchstart', closeOnOutside)
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutside)
+      document.removeEventListener('touchstart', closeOnOutside)
+    }
+  }, [accountMenuOpen])
+
   // ── Polling: refresh monitor list (new counts) + active products ────────────
   useEffect(() => {
     if (pollingRef.current) clearInterval(pollingRef.current)
@@ -489,44 +506,67 @@ export default function MonitorApp() {
           )}
 
           {/* Account menu */}
-          <div className="group relative shrink-0">
-            <button className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-200 text-xs font-bold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+          <div className="relative shrink-0" ref={accountMenuRef}>
+            <button
+              type="button"
+              onClick={() => setAccountMenuOpen((open) => !open)}
+              aria-expanded={accountMenuOpen}
+              aria-haspopup="menu"
+              aria-label="Menu da conta"
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-200 text-xs font-bold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+            >
               {(displayName?.[0] ?? userEmail?.[0] ?? '?').toUpperCase()}
             </button>
-            <div className="absolute right-0 top-9 z-30 hidden w-48 flex-col rounded-xl border border-zinc-200 bg-white p-1 shadow-lg group-hover:flex dark:border-zinc-700 dark:bg-zinc-900">
-              {(displayName || userEmail) && (
-                <span className="truncate px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">
-                  {displayName || userEmail}
-                </span>
-              )}
-              <Link
-                href="/app/configuracoes"
-                className="rounded-lg px-3 py-2 text-left text-sm text-zinc-700 transition hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            {accountMenuOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 top-9 z-30 flex w-48 flex-col rounded-xl border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
               >
-                Configurações
-              </Link>
-              <button
-                onClick={handleSignOut}
-                className="rounded-lg px-3 py-2 text-left text-sm text-red-600 transition hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
-              >
-                Sair
-              </button>
-            </div>
+                {(displayName || userEmail) && (
+                  <span className="truncate px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">
+                    {displayName || userEmail}
+                  </span>
+                )}
+                <Link
+                  href="/app/configuracoes"
+                  role="menuitem"
+                  onClick={() => setAccountMenuOpen(false)}
+                  className="rounded-lg px-3 py-2 text-left text-sm text-zinc-700 transition hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  Configurações
+                </Link>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setAccountMenuOpen(false)
+                    handleSignOut()
+                  }}
+                  className="rounded-lg px-3 py-2 text-left text-sm text-red-600 transition hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
+                >
+                  Sair
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
         {/* ── Monitor tabs ─────────────────────────────────────────────────── */}
         {hasMonitors && (
-          <div className="flex gap-1.5 overflow-x-auto px-3 pb-2.5 pt-0 scrollbar-none sm:px-6">
+          <div className="flex gap-2 overflow-x-auto px-3 pb-2.5 pt-1 scrollbar-none sm:px-6">
             {monitors.map((entry) => (
-              <div key={entry.id} className="group relative flex shrink-0 items-center">
+              <div
+                key={entry.id}
+                className={`group flex shrink-0 items-center gap-0.5 rounded-full pl-3 pr-1 py-1 text-xs font-medium transition ${
+                  activeId === entry.id
+                    ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900'
+                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
+                }`}
+              >
                 <button
+                  type="button"
                   onClick={() => { setActiveId(entry.id); fetchProducts(entry) }}
-                  className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition whitespace-nowrap ${
-                    activeId === entry.id
-                      ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900'
-                      : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
-                  }`}
+                  className="flex items-center gap-1.5 whitespace-nowrap"
                 >
                   <span className="capitalize">{entry.query}</span>
                   {entry.new_count > 0 && (
@@ -537,11 +577,12 @@ export default function MonitorApp() {
                 </button>
                 <button
                   type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleRemoveMonitor(entry.id)
-                  }}
-                  className="absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-zinc-500 text-white shadow-sm transition hover:bg-red-500 sm:h-4 sm:w-4 sm:opacity-0 sm:group-hover:opacity-100"
+                  onClick={() => handleRemoveMonitor(entry.id)}
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-white transition hover:bg-red-500 sm:h-5 sm:w-5 sm:opacity-0 sm:group-hover:opacity-100 ${
+                    activeId === entry.id
+                      ? 'bg-white/25 dark:bg-zinc-900/25'
+                      : 'bg-zinc-500/90'
+                  }`}
                   aria-label={`Remover monitor ${entry.query}`}
                   title="Remover"
                 >

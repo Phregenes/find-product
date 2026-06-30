@@ -24,3 +24,23 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+@layer components {
+  .form-input {
+    @apply rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2.5 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-yellow-400 focus:bg-white focus:ring-2 focus:ring-yellow-400/30 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-yellow-400 dark:focus:bg-zinc-900;
+  }
+
+  .form-input-error {
+    @apply border-red-300 focus:border-red-400 focus:ring-red-400/30 dark:border-red-800;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus {
+    -webkit-text-fill-color: #f4f4f5;
+    caret-color: #f4f4f5;
+    -webkit-box-shadow: 0 0 0 1000px #18181b inset;
+  }
+}
