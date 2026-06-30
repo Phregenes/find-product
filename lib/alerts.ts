@@ -1,8 +1,10 @@
 import 'server-only'
 
 import type { Product } from '@/lib/product'
+import { getPlanConfig, isSnapshotDue, isWithinActiveHours } from '@/lib/plans'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendNewProductsEmail } from '@/lib/email/send'
+import { saveMonitorSnapshot } from '@/lib/monitor-snapshot'
 
 export interface MonitorAlertResult {
   monitorId: string
@@ -11,19 +13,28 @@ export interface MonitorAlertResult {
   emailed: boolean
   emailError?: string
   baselined?: boolean
+  skipped?: boolean
 }
 
-/** Update monitor counts and email users when genuinely new products appear. */
+interface MonitorRow {
+  id: string
+  user_id: string
+  query: string
+  snapshot_at: string | null
+}
+
+/** Update snapshots, counts and emails — only for monitors due on their plan interval. */
 export async function processMonitorAlerts(
   searchId: string,
   products: Product[],
+  now = new Date(),
 ): Promise<MonitorAlertResult[]> {
   const admin = createAdminClient()
   const results: MonitorAlertResult[] = []
 
   const { data: monitors, error: mErr } = await admin
     .from('monitors')
-    .select('id, user_id, query')
+    .select('id, user_id, query, snapshot_at')
     .eq('search_id', searchId)
   if (mErr) throw mErr
   if (!monitors?.length) return results
@@ -31,24 +42,42 @@ export async function processMonitorAlerts(
   const userIds = [...new Set(monitors.map((m) => m.user_id as string))]
   const { data: profiles, error: pErr } = await admin
     .from('profiles')
-    .select('id, email, email_alerts')
+    .select('id, email, email_alerts, plan')
     .in('id', userIds)
   if (pErr) throw pErr
 
   const profileById = new Map(
     (profiles ?? []).map((p) => [
       p.id as string,
-      { email: p.email as string | null, emailAlerts: p.email_alerts !== false },
+      {
+        email: p.email as string | null,
+        emailAlerts: p.email_alerts !== false,
+        plan: p.plan as string,
+      },
     ]),
   )
 
   const productIds = products.map((p) => p.id)
-  const now = new Date().toISOString()
 
-  for (const monitor of monitors) {
-    const monitorId = monitor.id as string
-    const userId = monitor.user_id as string
-    const query = monitor.query as string
+  for (const monitor of monitors as MonitorRow[]) {
+    const monitorId = monitor.id
+    const userId = monitor.user_id
+    const query = monitor.query
+    const profile = profileById.get(userId)
+
+    if (!profile) continue
+
+    const plan = getPlanConfig(profile.plan)
+
+    if (!isSnapshotDue(monitor.snapshot_at, plan, now)) {
+      results.push({ monitorId, query, newCount: 0, emailed: false, skipped: true })
+      continue
+    }
+
+    if (!isWithinActiveHours(plan, now)) {
+      results.push({ monitorId, query, newCount: 0, emailed: false, skipped: true })
+      continue
+    }
 
     const { data: seenRows, error: sErr } = await admin
       .from('monitor_seen_products')
@@ -59,43 +88,29 @@ export async function processMonitorAlerts(
     const seen = new Set((seenRows ?? []).map((r) => r.product_id as string))
     const newProducts = products.filter((p) => !seen.has(p.id))
 
-    // First scrape for this monitor — baseline without emailing (same as app UX).
+    await saveMonitorSnapshot(monitorId, products)
+
     if (seen.size === 0 && products.length > 0) {
       await baselineSeen(admin, monitorId, productIds)
-      await admin
-        .from('monitors')
-        .update({ new_count: 0, last_checked_at: now })
-        .eq('id', monitorId)
-      results.push({
-        monitorId,
-        query,
-        newCount: 0,
-        emailed: false,
-        baselined: true,
-      })
+      await admin.from('monitors').update({ new_count: 0 }).eq('id', monitorId)
+      results.push({ monitorId, query, newCount: 0, emailed: false, baselined: true })
       continue
     }
 
     const newCount = newProducts.length
-    await admin
-      .from('monitors')
-      .update({ new_count: newCount, last_checked_at: now })
-      .eq('id', monitorId)
+    await admin.from('monitors').update({ new_count: newCount }).eq('id', monitorId)
 
     let emailed = false
     let emailError: string | undefined
 
-    if (newCount > 0) {
-      const profile = profileById.get(userId)
-      if (profile?.email && profile.emailAlerts) {
-        const send = await sendNewProductsEmail({
-          to: profile.email,
-          monitorQuery: query,
-          products: newProducts,
-        })
-        emailed = send.ok
-        if (!send.ok) emailError = send.error
-      }
+    if (newCount > 0 && profile.email && profile.emailAlerts) {
+      const send = await sendNewProductsEmail({
+        to: profile.email,
+        monitorQuery: query,
+        products: newProducts,
+      })
+      emailed = send.ok
+      if (!send.ok) emailError = send.error
     }
 
     results.push({ monitorId, query, newCount, emailed, emailError })

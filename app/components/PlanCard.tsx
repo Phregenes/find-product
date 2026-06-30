@@ -3,6 +3,7 @@ import {
   type PlanConfig,
   formatPlanPrice,
   formatRefreshMinutes,
+  formatActiveHours,
   isPaidPlan,
 } from '@/lib/plans'
 
@@ -56,7 +57,7 @@ export default function PlanCard({
         <li className="flex items-start gap-2">
           <CheckIcon />
           <span>
-            Monitoramento das <strong>{plan.activeHourStart}h às {plan.activeHourEnd}h</strong> (BRT)
+            Monitoramento <strong>{formatActiveHours(plan)}</strong> (BRT)
           </span>
         </li>
         {!paid && (

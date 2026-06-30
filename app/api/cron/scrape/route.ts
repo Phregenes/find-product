@@ -2,14 +2,14 @@ import { NextRequest } from 'next/server'
 import type { Condition, SortBy } from '@/lib/product'
 import { searchProducts } from '@/lib/scraper'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { writeCache } from '@/lib/searches'
+import { writeCache, readCachePage } from '@/lib/searches'
 import { processMonitorAlerts } from '@/lib/alerts'
 import {
   type PlanConfig,
   type PlanId,
   getPlanConfig,
-  shouldScrapeNow,
-  effectiveCheckIntervalMinutes,
+  isSnapshotDue,
+  isWithinActiveHours,
 } from '@/lib/plans'
 
 export const dynamic = 'force-dynamic'
@@ -23,8 +23,15 @@ interface SearchRow {
   last_scraped_at: string | null
 }
 
+interface MonitorOnSearch {
+  id: string
+  user_id: string
+  snapshot_at: string | null
+  plan: PlanConfig
+}
+
 interface SearchTarget extends SearchRow {
-  subscriberPlans: PlanConfig[]
+  monitors: MonitorOnSearch[]
 }
 
 function authorized(request: NextRequest): boolean {
@@ -33,13 +40,23 @@ function authorized(request: NextRequest): boolean {
   return request.headers.get('authorization') === `Bearer ${secret}`
 }
 
-/** Group monitors by shared search and collect each subscriber's plan. */
+function sharedCacheStaleForDueMonitors(
+  scrapedAt: string | null,
+  dueMonitors: MonitorOnSearch[],
+  now: Date,
+): boolean {
+  if (!scrapedAt || dueMonitors.length === 0) return true
+  const intervalMin = Math.min(...dueMonitors.map((m) => m.plan.checkIntervalMinutes))
+  const elapsedMin = (now.getTime() - new Date(scrapedAt).getTime()) / 60_000
+  return elapsedMin >= intervalMin
+}
+
 async function loadSearchTargets(
   admin: ReturnType<typeof createAdminClient>,
 ): Promise<SearchTarget[]> {
   const { data: rows, error } = await admin
     .from('monitors')
-    .select('user_id, search_id, searches(id, query, sort_by, condition, last_scraped_at)')
+    .select('id, user_id, search_id, snapshot_at, searches(id, query, sort_by, condition, last_scraped_at)')
   if (error) throw error
 
   const userIds = [...new Set((rows ?? []).map((r) => r.user_id as string))]
@@ -64,9 +81,16 @@ async function loadSearchTargets(
     if (!s) continue
 
     const plan = planByUser.get(row.user_id as string) ?? getPlanConfig(null)
+    const monitor: MonitorOnSearch = {
+      id: row.id as string,
+      user_id: row.user_id as string,
+      snapshot_at: row.snapshot_at as string | null,
+      plan,
+    }
+
     const existing = bySearch.get(s.id)
     if (existing) {
-      existing.subscriberPlans.push(plan)
+      existing.monitors.push(monitor)
     } else {
       bySearch.set(s.id, {
         id: s.id,
@@ -74,7 +98,7 @@ async function loadSearchTargets(
         sort_by: s.sort_by,
         condition: s.condition,
         last_scraped_at: s.last_scraped_at,
-        subscriberPlans: [plan],
+        monitors: [monitor],
       })
     }
   }
@@ -96,46 +120,55 @@ export async function GET(request: NextRequest) {
     query: string
     scraped: number
     skipped?: boolean
-    intervalMin?: number
+    dueMonitors?: number
     error?: string
     emailsSent?: number
-    alerts?: Array<{ monitorId: string; newCount: number; emailed: boolean }>
+    alerts?: Array<{ monitorId: string; newCount: number; emailed: boolean; skipped?: boolean }>
   }> = []
 
   for (const search of targets) {
-    const intervalMin = effectiveCheckIntervalMinutes(search.subscriberPlans)
+    const dueMonitors = search.monitors.filter(
+      (m) => isSnapshotDue(m.snapshot_at, m.plan, now) && isWithinActiveHours(m.plan, now),
+    )
 
-    if (!shouldScrapeNow(search.last_scraped_at, search.subscriberPlans, now)) {
+    if (dueMonitors.length === 0) {
       results.push({
         search_id: search.id,
         query: search.query,
         scraped: 0,
         skipped: true,
-        intervalMin,
+        dueMonitors: 0,
       })
       continue
     }
 
     try {
-      const { products } = await searchProducts(
-        search.query,
-        search.sort_by,
-        1,
-        search.condition,
-      )
-      await writeCache(search.id, 1, products)
-      const alerts = await processMonitorAlerts(search.id, products)
+      const cached = await readCachePage(search.id, 1)
+      const needScrape = !cached || sharedCacheStaleForDueMonitors(search.last_scraped_at, dueMonitors, now)
+
+      let products
+      if (needScrape) {
+        const result = await searchProducts(search.query, search.sort_by, 1, search.condition)
+        products = result.products
+        await writeCache(search.id, 1, products)
+      } else {
+        products = cached!.products
+      }
+
+      const alerts = await processMonitorAlerts(search.id, products, now)
       const emailsSent = alerts.filter((a) => a.emailed).length
+
       results.push({
         search_id: search.id,
         query: search.query,
         scraped: products.length,
-        intervalMin,
+        dueMonitors: dueMonitors.length,
         emailsSent,
         alerts: alerts.map((a) => ({
           monitorId: a.monitorId,
           newCount: a.newCount,
           emailed: a.emailed,
+          skipped: a.skipped,
         })),
       })
     } catch (err) {
@@ -143,7 +176,7 @@ export async function GET(request: NextRequest) {
         search_id: search.id,
         query: search.query,
         scraped: 0,
-        intervalMin,
+        dueMonitors: dueMonitors.length,
         error: (err as Error).message,
       })
     }

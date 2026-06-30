@@ -75,8 +75,8 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     monitorLimit: 15,
     checkIntervalMinutes: 10,
     clientRefreshMinutes: 5,
-    activeHourStart: 8,
-    activeHourEnd: 22,
+    activeHourStart: 0,
+    activeHourEnd: 24,
     tagline: 'Máxima cobertura para operação profissional.',
   },
 }
@@ -105,19 +105,51 @@ export function formatRefreshMinutes(minutes: number): string {
 
 /** Current hour in America/Sao_Paulo (0–23). */
 export function getBrtHour(date = new Date()): number {
-  return Number(
+  const hour = Number(
     new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/Sao_Paulo',
       hour: 'numeric',
       hour12: false,
     }).format(date),
   )
+  // Some runtimes return 24 for midnight instead of 0.
+  return hour === 24 ? 0 : hour
+}
+
+export function formatActiveHours(plan: PlanConfig): string {
+  if (plan.activeHourStart === 0 && plan.activeHourEnd >= 24) return '24 horas'
+  return `das ${plan.activeHourStart}h às ${plan.activeHourEnd}h`
 }
 
 export function isWithinActiveHours(plan: PlanConfig, date = new Date()): boolean {
+  if (plan.activeHourStart === 0 && plan.activeHourEnd >= 24) return true
   const hour = getBrtHour(date)
   if (plan.activeHourEnd >= 24) return hour >= plan.activeHourStart
   return hour >= plan.activeHourStart && hour < plan.activeHourEnd
+}
+
+/** True when this monitor may pull fresh data (shared cache or scrape). */
+export function isSnapshotDue(
+  snapshotAt: string | null,
+  plan: PlanConfig,
+  now = new Date(),
+  force = false,
+): boolean {
+  if (force) return true
+  if (!snapshotAt) return true
+  const elapsedMin = (now.getTime() - new Date(snapshotAt).getTime()) / 60_000
+  return elapsedMin >= plan.checkIntervalMinutes
+}
+
+/** Minutes until this monitor's snapshot can refresh. */
+export function minutesUntilSnapshotDue(
+  snapshotAt: string | null,
+  plan: PlanConfig,
+  now = new Date(),
+): number {
+  if (!snapshotAt) return 0
+  const elapsedMin = (now.getTime() - new Date(snapshotAt).getTime()) / 60_000
+  return Math.max(0, plan.checkIntervalMinutes - elapsedMin)
 }
 
 /** For a shared search, scrape at the fastest interval any subscriber needs. */

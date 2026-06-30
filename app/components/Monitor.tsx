@@ -219,13 +219,14 @@ export default function MonitorApp() {
   const activeMonitor = activeId ? monitors.find((m) => m.id === activeId) ?? null : null
 
   // ── Fetch products for a monitor (page 1) ─────────────────────────────────
-  const fetchProducts = useCallback(async (monitor: MonitorWithSearch) => {
+  const fetchProducts = useCallback(async (monitor: MonitorWithSearch, options?: { force?: boolean }) => {
     setActiveId(monitor.id)
     setViewState((s) => ({ ...s, loading: true, error: null, products: [], newIds: new Set(), page: 1, hasMore: true }))
     const condition = monitor.searches?.condition ?? 'all'
+    const forceParam = options?.force ? '&force=1' : ''
     try {
       const res = await fetch(
-        `/api/search?q=${encodeURIComponent(monitor.query)}&sort=recent&page=1&condition=${condition}`,
+        `/api/search?q=${encodeURIComponent(monitor.query)}&sort=recent&page=1&condition=${condition}&monitorId=${encodeURIComponent(monitor.id)}${forceParam}`,
       )
       const data = await res.json()
       if (!res.ok || data.error) throw new Error(data.error ?? 'Erro ao buscar')
@@ -585,7 +586,7 @@ export default function MonitorApp() {
               </div>
 
               <button
-                onClick={() => fetchProducts(activeMonitor)}
+                onClick={() => fetchProducts(activeMonitor, { force: true })}
                 disabled={viewState.loading}
                 className="flex shrink-0 items-center gap-1 rounded-lg border border-zinc-200 px-2.5 py-1 text-xs font-medium text-zinc-500 transition hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
               >

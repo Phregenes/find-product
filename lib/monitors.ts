@@ -18,6 +18,8 @@ export interface MonitorRow {
   query: string
   last_checked_at: string | null
   new_count: number
+  snapshot_products?: Product[] | null
+  snapshot_at?: string | null
   created_at: string
   updated_at: string
 }
