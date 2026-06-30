@@ -5,6 +5,7 @@ import { getPlanConfig, isSnapshotDue, isWithinActiveHours } from '@/lib/plans'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendNewProductsEmail } from '@/lib/email/send'
 import { saveMonitorSnapshot } from '@/lib/monitor-snapshot'
+import { baselineMonitorSeen } from '@/lib/monitor-seen'
 
 export interface MonitorAlertResult {
   monitorId: string
@@ -91,7 +92,7 @@ export async function processMonitorAlerts(
     await saveMonitorSnapshot(monitorId, products)
 
     if (seen.size === 0 && products.length > 0) {
-      await baselineSeen(admin, monitorId, productIds)
+      await baselineMonitorSeen(monitorId, productIds)
       await admin.from('monitors').update({ new_count: 0 }).eq('id', monitorId)
       results.push({ monitorId, query, newCount: 0, emailed: false, baselined: true })
       continue
@@ -117,17 +118,4 @@ export async function processMonitorAlerts(
   }
 
   return results
-}
-
-async function baselineSeen(
-  admin: ReturnType<typeof createAdminClient>,
-  monitorId: string,
-  productIds: string[],
-): Promise<void> {
-  if (productIds.length === 0) return
-  const rows = productIds.map((product_id) => ({ monitor_id: monitorId, product_id }))
-  const { error } = await admin
-    .from('monitor_seen_products')
-    .upsert(rows, { onConflict: 'monitor_id,product_id', ignoreDuplicates: true })
-  if (error) throw error
 }

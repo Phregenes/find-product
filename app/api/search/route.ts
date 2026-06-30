@@ -21,6 +21,7 @@ import {
   saveMonitorSnapshot,
   sharedCacheStaleForPlan,
 } from '@/lib/monitor-snapshot'
+import { baselineFirstVisitIfNeeded } from '@/lib/monitor-seen'
 import { writeHeartbeat } from '@/lib/ops'
 import type { Product } from '@/lib/product'
 
@@ -37,6 +38,7 @@ function jsonProducts(
     frozen?: boolean
     nextUpdateInMin?: number
     outsideActiveHours?: boolean
+    initialCatalog?: boolean
   },
 ) {
   return Response.json({
@@ -51,6 +53,7 @@ function jsonProducts(
     frozen: opts.frozen ?? false,
     nextUpdateInMin: opts.nextUpdateInMin,
     outsideActiveHours: opts.outsideActiveHours,
+    initialCatalog: opts.initialCatalog ?? false,
   })
 }
 
@@ -124,8 +127,9 @@ export async function GET(request: NextRequest) {
 
       const search = await resolveSearch(q, sort, condition)
       const cached = await readCachePage(search.id, page)
+      const isFirstScrape = !monitor.snapshot_at
 
-      if (!force && !isWithinActiveHours(plan, now)) {
+      if (!force && !isFirstScrape && !isWithinActiveHours(plan, now)) {
         const fallback = monitor.snapshot_products ?? cached?.products ?? []
         if (fallback.length > 0) {
           return jsonProducts(fallback, {
@@ -170,6 +174,10 @@ export async function GET(request: NextRequest) {
       }
 
       await saveMonitorSnapshot(monitorId, products)
+      const initialCatalog = await baselineFirstVisitIfNeeded(
+        monitorId,
+        products.map((p) => p.id),
+      )
 
       return jsonProducts(products, {
         q,
@@ -178,6 +186,7 @@ export async function GET(request: NextRequest) {
         fetchedAt,
         fromCache,
         frozen: false,
+        initialCatalog,
       })
     }
 

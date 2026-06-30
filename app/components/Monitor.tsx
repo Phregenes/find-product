@@ -196,11 +196,12 @@ interface ViewState {
   newIds: Set<string>
   page: number
   hasMore: boolean
+  isInitialCatalog: boolean
 }
 
 const EMPTY_VIEW: ViewState = {
   loading: false, loadingMore: false, error: null,
-  products: [], newIds: new Set(), page: 1, hasMore: true,
+  products: [], newIds: new Set(), page: 1, hasMore: true, isInitialCatalog: false,
 }
 
 export default function MonitorApp() {
@@ -221,7 +222,16 @@ export default function MonitorApp() {
   // ── Fetch products for a monitor (page 1) ─────────────────────────────────
   const fetchProducts = useCallback(async (monitor: MonitorWithSearch, options?: { force?: boolean }) => {
     setActiveId(monitor.id)
-    setViewState((s) => ({ ...s, loading: true, error: null, products: [], newIds: new Set(), page: 1, hasMore: true }))
+    setViewState((s) => ({
+      ...s,
+      loading: true,
+      error: null,
+      products: [],
+      newIds: new Set(),
+      page: 1,
+      hasMore: true,
+      isInitialCatalog: false,
+    }))
     const condition = monitor.searches?.condition ?? 'all'
     const forceParam = options?.force ? '&force=1' : ''
     try {
@@ -232,15 +242,23 @@ export default function MonitorApp() {
       if (!res.ok || data.error) throw new Error(data.error ?? 'Erro ao buscar')
 
       const products = (data.products as Product[]) ?? []
+      const initialCatalog = !!data.initialCatalog
       const seen = await getSeenIds(monitor.id)
 
       let newIds: Set<string>
-      if (seen.size === 0) {
-        // First time seeing this monitor — baseline everything as seen.
+      if (initialCatalog) {
+        newIds = new Set()
+      } else if (seen.size === 0 && products.length > 0) {
         await addSeenIds(monitor.id, products.map((p) => p.id))
         newIds = new Set()
       } else {
         newIds = new Set(products.filter((p) => !seen.has(p.id)).map((p) => p.id))
+      }
+
+      if (initialCatalog) {
+        setMonitors((prev) =>
+          prev.map((m) => (m.id === monitor.id ? { ...m, new_count: 0 } : m)),
+        )
       }
 
       setViewState({
@@ -249,12 +267,13 @@ export default function MonitorApp() {
         newIds,
         page: 1,
         hasMore: data.mlPageFull ?? products.length >= ML_PAGE_STEP,
+        isInitialCatalog: initialCatalog || (seen.size === 0 && products.length > 0),
       })
     } catch (err) {
       setViewState({
         loading: false, loadingMore: false,
         error: (err as Error).message,
-        products: [], newIds: new Set(), page: 1, hasMore: false,
+        products: [], newIds: new Set(), page: 1, hasMore: false, isInitialCatalog: false,
       })
     }
   }, [])
@@ -364,7 +383,7 @@ export default function MonitorApp() {
   async function handleMarkSeen() {
     if (!activeMonitor) return
     await addSeenIds(activeMonitor.id, viewState.products.map((p) => p.id)).catch(() => {})
-    setViewState((s) => ({ ...s, newIds: new Set() }))
+    setViewState((s) => ({ ...s, newIds: new Set(), isInitialCatalog: false }))
     setMonitors((prev) => prev.map((m) => (m.id === activeMonitor.id ? { ...m, new_count: 0 } : m)))
   }
 
@@ -645,8 +664,22 @@ export default function MonitorApp() {
           </div>
         )}
 
+        {/* Initial catalog — first time user sees this monitor */}
+        {!viewState.loading && !viewState.error && viewState.isInitialCatalog && viewState.products.length > 0 && (
+          <div className="mb-4 flex items-start gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2.5 text-xs text-blue-800 sm:px-4 sm:py-3 sm:text-sm dark:border-blue-900/30 dark:bg-blue-950/20 dark:text-blue-300">
+            <svg className="mt-0.5 h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p>
+              <strong>{viewState.products.length} anúncios</strong> encontrados agora no ML.
+              Salvamos esta lista como referência — nas próximas atualizações destacamos só o que for{' '}
+              <strong>novo</strong> desde então.
+            </p>
+          </div>
+        )}
+
         {/* No new products notice */}
-        {!viewState.loading && !viewState.error && viewState.products.length > 0 && viewState.newIds.size === 0 && lastCheckedMs(activeMonitor) > 0 && (
+        {!viewState.loading && !viewState.error && !viewState.isInitialCatalog && viewState.products.length > 0 && viewState.newIds.size === 0 && lastCheckedMs(activeMonitor) > 0 && (
           <div className="mb-4 flex items-center gap-2 rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500 sm:px-4 sm:py-3 sm:text-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
             <svg className="h-3.5 w-3.5 shrink-0 text-green-500 sm:h-4 sm:w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
