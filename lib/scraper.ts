@@ -32,6 +32,12 @@ async function navigateAndCount(browserPage: Page, url: string): Promise<number>
 }
 
 function getProxy() {
+  // Local dev uses the machine's own IP. Proxy is only needed on Vercel/serverless
+  // where datacenter IPs get blocked by Mercado Livre.
+  const isServerless =
+    !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME
+  if (!isServerless) return undefined
+
   const server = process.env.PROXY_SERVER?.trim()
   if (!server) return undefined
   return {
