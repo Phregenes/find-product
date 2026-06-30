@@ -25,6 +25,7 @@ export async function GET() {
       clientRefreshMinutes: p.clientRefreshMinutes,
       activeHourStart: p.activeHourStart,
       activeHourEnd: p.activeHourEnd,
+      tagline: p.tagline,
     })),
   })
 }

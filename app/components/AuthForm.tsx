@@ -25,7 +25,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
     setLoading(true)
 
     const supabase = createClient()
-    const redirectTo = searchParams.get('redirectTo') || '/'
+    const redirectTo = searchParams.get('redirectTo') || '/app'
 
     try {
       if (isLogin) {
@@ -63,7 +63,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
           </div>
           <h1 className="text-xl font-bold text-zinc-900 dark:text-white">FindProduct</h1>
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            {isLogin ? 'Entre na sua conta' : 'Crie sua conta'}
+            {isLogin ? 'Entre na sua conta' : 'Comece grátis com 1 monitor'}
           </p>
         </div>
 

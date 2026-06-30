@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import {
   type MonitorWithSearch,
   listMonitors,
@@ -527,6 +528,14 @@ export default function MonitorApp() {
               </h1>
               <p className="max-w-xs text-sm text-zinc-500 sm:max-w-sm dark:text-zinc-400">
                 Adicione uma busca acima e o app avisa quando aparecer coisa nova.
+                {planUsage?.plan.id === 'free' && (
+                  <>
+                    {' '}
+                    <Link href="/planos" className="font-medium text-yellow-600 hover:underline dark:text-yellow-400">
+                      Ver planos pagos
+                    </Link>
+                  </>
+                )}
               </p>
             </div>
             <div className="flex flex-wrap justify-center gap-2">

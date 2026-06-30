@@ -5,11 +5,14 @@
  * - clientRefreshMinutes → min interval when user has the app open
  * - activeHourStart/End → BRT window when scraping is allowed
  *
+ * New signups get `free`. Paid tiers: garimpo, lojista, pro.
  * Per-user plan is stored in `profiles.plan` (Supabase).
  * Vercel Hobby cron runs once daily (11:00 UTC = 8h BRT); Pro can use every-5-min schedule.
  */
 
-export type PlanId = 'garimpo' | 'lojista' | 'pro'
+export type PlanId = 'free' | 'garimpo' | 'lojista' | 'pro'
+
+export type PaidPlanId = Exclude<PlanId, 'free'>
 
 export interface PlanConfig {
   id: PlanId
@@ -23,20 +26,36 @@ export interface PlanConfig {
   /** Active window in BRT (America/Sao_Paulo). End 24 = until midnight. */
   activeHourStart: number
   activeHourEnd: number
+  /** Short marketing blurb for pricing page. */
+  tagline: string
 }
 
-export const DEFAULT_PLAN_ID: PlanId = 'garimpo'
+export const DEFAULT_PLAN_ID: PlanId = 'free'
+
+export const PAID_PLAN_IDS: PaidPlanId[] = ['garimpo', 'lojista', 'pro']
 
 export const PLANS: Record<PlanId, PlanConfig> = {
+  free: {
+    id: 'free',
+    name: 'Grátis',
+    priceMonthly: 0,
+    monitorLimit: 1,
+    checkIntervalMinutes: 1440,
+    clientRefreshMinutes: 60,
+    activeHourStart: 8,
+    activeHourEnd: 20,
+    tagline: 'Experimente com 1 monitor antes de assinar.',
+  },
   garimpo: {
     id: 'garimpo',
     name: 'Garimpo',
     priceMonthly: 49,
     monitorLimit: 3,
-    checkIntervalMinutes: 480, // ~3×/day
+    checkIntervalMinutes: 480,
     clientRefreshMinutes: 30,
     activeHourStart: 8,
     activeHourEnd: 20,
+    tagline: 'Para quem garimpa oportunidades no dia a dia.',
   },
   lojista: {
     id: 'lojista',
@@ -47,6 +66,7 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     clientRefreshMinutes: 10,
     activeHourStart: 8,
     activeHourEnd: 20,
+    tagline: 'Mais monitores e atualizações frequentes.',
   },
   pro: {
     id: 'pro',
@@ -57,12 +77,30 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     clientRefreshMinutes: 5,
     activeHourStart: 8,
     activeHourEnd: 22,
+    tagline: 'Máxima cobertura para operação profissional.',
   },
 }
+
+export const PLAN_LIST: PlanConfig[] = Object.values(PLANS)
 
 export function getPlanConfig(planId: string | null | undefined): PlanConfig {
   if (planId && planId in PLANS) return PLANS[planId as PlanId]
   return PLANS[DEFAULT_PLAN_ID]
+}
+
+export function isPaidPlan(planId: PlanId): planId is PaidPlanId {
+  return planId !== 'free'
+}
+
+export function formatPlanPrice(plan: PlanConfig): string {
+  if (plan.priceMonthly === 0) return 'Grátis'
+  return `R$ ${plan.priceMonthly}/mês`
+}
+
+export function formatRefreshMinutes(minutes: number): string {
+  if (minutes >= 1440) return '1× ao dia'
+  if (minutes >= 60) return `${Math.round(minutes / 60)}h`
+  return `${minutes} min`
 }
 
 /** Current hour in America/Sao_Paulo (0–23). */
