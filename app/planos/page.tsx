@@ -41,8 +41,9 @@ export default function PlanosPage() {
         </div>
 
         <p className="mx-auto mt-10 max-w-xl text-center text-xs text-zinc-400">
-          Pagamento dos planos pagos em breve. Ao criar conta, você começa no plano Grátis.
-          Planos pagos serão ativados manualmente ou via checkout assim que disponível.
+          O plano Grátis é ativado ao criar conta. Para Garimpo, Lojista ou Pro, clique em{' '}
+          <strong className="text-zinc-500 dark:text-zinc-300">Quero esse plano</strong> e
+          enviamos sua solicitação — ativamos o plano manualmente após o contato.
         </p>
 
         <div className="mt-8 text-center">

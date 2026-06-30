@@ -536,8 +536,13 @@ export default function MonitorApp() {
                   )}
                 </button>
                 <button
-                  onClick={() => handleRemoveMonitor(entry.id)}
-                  className="absolute -right-1 -top-1 hidden h-4 w-4 items-center justify-center rounded-full bg-zinc-400 text-white transition hover:bg-red-500 group-hover:flex"
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleRemoveMonitor(entry.id)
+                  }}
+                  className="absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-zinc-500 text-white shadow-sm transition hover:bg-red-500 sm:h-4 sm:w-4 sm:opacity-0 sm:group-hover:opacity-100"
+                  aria-label={`Remover monitor ${entry.query}`}
                   title="Remover"
                 >
                   <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
