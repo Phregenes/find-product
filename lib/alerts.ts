@@ -6,10 +6,13 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { sendNewProductsEmail } from '@/lib/email/send'
 import { saveMonitorSnapshot } from '@/lib/monitor-snapshot'
 import { baselineMonitorSeen } from '@/lib/monitor-seen'
-import { syncPendingNewProducts } from '@/lib/monitor-new'
+import {
+  prunePendingNewProducts,
+  syncPendingNewProducts,
+} from '@/lib/monitor-new'
 import {
   filterNotYetNotified,
-  shouldSkipDuplicateEmail,
+  hasItemsNotYetNotified,
 } from '@/lib/notification-fingerprint'
 
 export interface MonitorAlertResult {
@@ -95,7 +98,7 @@ export async function processMonitorAlerts(
     if (sErr) throw sErr
 
     const seen = new Set((seenRows ?? []).map((r) => r.product_id as string))
-    const newProducts = allProducts.filter((p) => !seen.has(p.id))
+    const discovered = allProducts.filter((p) => !seen.has(p.id))
 
     await saveMonitorSnapshot(monitorId, page1Products, searchId)
 
@@ -106,13 +109,14 @@ export async function processMonitorAlerts(
       continue
     }
 
-    const newCount = newProducts.length
-    const newProductIds = newProducts.map((p) => p.id)
-    const lastNotifiedIds = monitor.last_notified_item_ids ?? []
+    const scannedIds = new Set(allProducts.map((p) => p.id))
+    await syncPendingNewProducts(monitorId, discovered)
+    const pending = await prunePendingNewProducts(monitorId, scannedIds)
 
-    if (newCount > 0) {
-      await syncPendingNewProducts(monitorId, newProducts)
-    }
+    const newProducts = pending
+    const newCount = pending.length
+    const newProductIds = pending.map((p) => p.id)
+    const lastNotifiedIds = monitor.last_notified_item_ids ?? []
 
     await admin.from('monitors').update({ new_count: newCount }).eq('id', monitorId)
 
@@ -124,14 +128,14 @@ export async function processMonitorAlerts(
       newCount > 0 && profile.email && profile.emailAlerts && plan.emailAlerts
 
     if (canEmail) {
-      if (shouldSkipDuplicateEmail(newProductIds, lastNotifiedIds)) {
+      if (!hasItemsNotYetNotified(newProductIds, lastNotifiedIds)) {
         emailSkippedDuplicate = true
       } else {
         const toNotify = filterNotYetNotified(newProducts, lastNotifiedIds)
         const send = await sendNewProductsEmail({
           to: profile.email!,
           monitorQuery: query,
-          products: toNotify.length > 0 ? toNotify : newProducts,
+          products: toNotify,
         })
         emailed = send.ok
         if (!send.ok) emailError = send.error
