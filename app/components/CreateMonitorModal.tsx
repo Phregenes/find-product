@@ -101,7 +101,17 @@ export default function CreateMonitorModal({
         className="relative z-10 flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
       >
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-          <div className="shrink-0 border-b border-zinc-100 px-4 py-4 sm:px-5 dark:border-zinc-800">
+          <div className="relative shrink-0 border-b border-zinc-100 px-4 py-4 pr-12 sm:px-5 sm:pr-14 dark:border-zinc-800">
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Fechar"
+              className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-700 sm:right-4 sm:top-4 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            >
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
             <h2 id="create-monitor-title" className="text-base font-semibold text-zinc-900 dark:text-white">
               Novo monitor
             </h2>
