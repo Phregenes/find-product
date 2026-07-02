@@ -65,7 +65,7 @@ export async function createMonitor(
       condition: options?.condition ?? 'all',
       filter_mode: options?.filterMode ?? 'default',
       exclude_terms: options?.excludeTerms ?? [],
-      email_alerts: options?.emailAlerts ?? true,
+      email_alerts: options?.emailAlerts ?? false,
     }),
   })
   const data = await res.json()

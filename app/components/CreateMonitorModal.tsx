@@ -41,7 +41,7 @@ export default function CreateMonitorModal({
   const [condition, setCondition] = useState<Condition>('all')
   const [filterMode, setFilterMode] = useState<MonitorFilterMode>('default')
   const [excludeInput, setExcludeInput] = useState('')
-  const [emailAlerts, setEmailAlerts] = useState(true)
+  const [emailAlerts, setEmailAlerts] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -50,10 +50,10 @@ export default function CreateMonitorModal({
       setCondition('all')
       setFilterMode('default')
       setExcludeInput('')
-      setEmailAlerts(planEmailAlerts)
+      setEmailAlerts(false)
       setSubmitting(false)
     }
-  }, [open, initialQuery, planEmailAlerts])
+  }, [open, initialQuery])
 
   useEffect(() => {
     if (!open) return

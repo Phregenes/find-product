@@ -9,7 +9,7 @@ import { countUserMonitors, getUserPlan } from '@/lib/plans-server'
 
 export const dynamic = 'force-dynamic'
 
-const DEFAULT_SORT: SortBy = 'recent'
+const DEFAULT_SORT: SortBy = 'relevance'
 
 async function getUserId() {
   const supabase = await createClient()
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
   const excludeTerms = Array.isArray(body.exclude_terms)
     ? (body.exclude_terms as string[]).map((t) => String(t).trim()).filter(Boolean)
     : []
-  const emailAlertsRequested = body.email_alerts !== false
+  const emailAlertsRequested = body.email_alerts === true
   if (!query) return Response.json({ error: 'Query obrigatória' }, { status: 400 })
 
   try {

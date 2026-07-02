@@ -19,21 +19,26 @@ export interface LoadMoreResult {
   hasMore: boolean
 }
 
-// Navigate to a URL and return how many product items are on the page.
-// ML occasionally serves a transient error page, so callers can retry on 0.
-async function navigateAndCount(browserPage: Page, url: string): Promise<number> {
-  await browserPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-  await browserPage
-    .waitForSelector('li.ui-search-layout__item', { timeout: 6_000 })
-    .catch(() => null)
-  return browserPage.evaluate(
-    () => document.querySelectorAll('li.ui-search-layout__item').length,
-  )
+export class MlScrapeBlockedError extends Error {
+  readonly code = 'ML_BLOCKED' as const
+
+  constructor() {
+    super('O Mercado Livre bloqueou o acesso automático. Tente atualizar em alguns minutos.')
+    this.name = 'MlScrapeBlockedError'
+  }
+}
+
+function buildQuerySlug(query: string): string {
+  return query
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
 }
 
 function getProxy() {
-  // Local dev uses the machine's own IP. Proxy is only needed on Vercel/serverless
-  // where datacenter IPs get blocked by Mercado Livre.
   const isServerless =
     !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME
   if (!isServerless) return undefined
@@ -49,44 +54,46 @@ function getProxy() {
 
 async function launchBrowser() {
   const proxy = getProxy()
+  const launchArgs = [
+    '--disable-blink-features=AutomationControlled',
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+  ]
 
   if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
     const chromium = (await import('@sparticuz/chromium')).default
     const executablePath = await chromium.executablePath()
     const { chromium: pw } = await import('playwright-core')
     const args = (chromium.args as string[]).filter((a) => !a.startsWith('--headless'))
-    return pw.launch({ args, executablePath, headless: true, proxy })
+    return pw.launch({ args: [...args, ...launchArgs], executablePath, headless: true, proxy })
   }
 
   const { chromium } = await import('playwright')
-  return chromium.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-    proxy,
-  })
+  return chromium.launch({ headless: true, args: launchArgs, proxy })
 }
 
 async function createScrapeContext(browser: Browser) {
   const context = await browser.newContext({
     userAgent:
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
     locale: 'pt-BR',
     viewport: { width: 1280, height: 720 },
+    extraHTTPHeaders: {
+      'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+      Accept:
+        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    },
   })
 
-  // ML server-renders the full listing into the initial HTML document, so we
-  // don't need JS/CSS to read titles/prices. Aborting script + stylesheet (on
-  // top of image/media/font) cuts ~1.75 MB/page down to ~0.2 MB/page (~8x less
-  // proxy bandwidth) with no loss of product data.
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
+  })
+
+  // Keep JS enabled — ML often gates headless traffic without scripts.
   await context.route('**/*', (route) => {
     const type = route.request().resourceType()
-    if (
-      type === 'image' ||
-      type === 'media' ||
-      type === 'font' ||
-      type === 'stylesheet' ||
-      type === 'script'
-    ) {
+    if (type === 'image' || type === 'media' || type === 'font') {
       return route.abort()
     }
     return route.continue()
@@ -98,7 +105,7 @@ async function createScrapeContext(browser: Browser) {
       value: 'true',
       domain: '.mercadolivre.com.br',
       path: '/',
-      expires: Math.floor(Date.now() / 1000) + 300,
+      expires: Math.floor(Date.now() / 1000) + 86_400,
     },
   ])
 
@@ -111,14 +118,34 @@ function buildSearchUrl(
   page: number,
   condition: Condition,
 ): string {
-  const slug = encodeURIComponent(query)
-    .replace(/%20/g, '-')
-    .replace(/%[0-9A-F]{2}/gi, '-')
+  const slug = buildQuerySlug(query)
   const sortSuffix = sortBy === 'recent' ? '_OrderId_UFRE' : ''
   const offset = (page - 1) * ML_PAGE_STEP + 1
   const pageSuffix = page > 1 ? `_Desde_${offset}` : ''
   const conditionPath = condition === 'new' ? 'novo/' : condition === 'used' ? 'usado/' : ''
   return `https://lista.mercadolivre.com.br/${conditionPath}${slug}${sortSuffix}${pageSuffix}`
+}
+
+async function dismissCookieBanner(browserPage: Page): Promise<void> {
+  const cookieBtn = browserPage.locator('[data-testid="action:understood-button"]')
+  if (await cookieBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+    await cookieBtn.click().catch(() => {})
+    await browserPage.waitForTimeout(800)
+  }
+}
+
+async function isBlockedPage(browserPage: Page): Promise<boolean> {
+  return browserPage.evaluate(
+    () =>
+      !!document.querySelector('.account-verification-main')
+      || location.pathname.includes('/gz/account-verification'),
+  )
+}
+
+async function countResultItems(browserPage: Page): Promise<number> {
+  return browserPage.evaluate(
+    () => document.querySelectorAll('li.ui-search-layout__item').length,
+  )
 }
 
 async function scrapeProductsFromPage(browserPage: Page): Promise<Product[]> {
@@ -129,18 +156,27 @@ async function scrapeProductsFromPage(browserPage: Page): Promise<Product[]> {
 
     return items
       .map((item): Product | null => {
-        const titleEl = item.querySelector<HTMLAnchorElement>('a.poly-component__title')
+        const titleEl =
+          item.querySelector<HTMLAnchorElement>('a.poly-component__title')
+          ?? item.querySelector<HTMLAnchorElement>('a.ui-search-item__title')
+          ?? item.querySelector<HTMLAnchorElement>('h2 a')
         if (!titleEl) return null
 
         const title = titleEl.textContent?.trim() ?? ''
         const link = titleEl.href ?? ''
 
-        const curFraction = item
-          .querySelector('.poly-price__current .andes-money-amount__fraction')
-          ?.textContent?.trim()
-        const curCents = item
-          .querySelector('.poly-price__current .andes-money-amount__cents')
-          ?.textContent?.trim()
+        const priceRoot =
+          item.querySelector('.poly-price__current')
+          ?? item.querySelector('.ui-search-price')
+          ?? item
+
+        const curFraction =
+          priceRoot.querySelector('.andes-money-amount__fraction')?.textContent?.trim()
+          ?? priceRoot.querySelector('.price-tag-fraction')?.textContent?.trim()
+        const curCents =
+          priceRoot.querySelector('.andes-money-amount__cents')?.textContent?.trim()
+          ?? priceRoot.querySelector('.price-tag-cents')?.textContent?.trim()
+
         const origFraction = item
           .querySelector('.andes-money-amount--previous .andes-money-amount__fraction')
           ?.textContent?.trim()
@@ -154,7 +190,7 @@ async function scrapeProductsFromPage(browserPage: Page): Promise<Product[]> {
         const installments = item.querySelector('.poly-price__installments')?.textContent?.trim()
 
         const imgEl = item.querySelector<HTMLImageElement>(
-          'img.poly-component__picture, img[data-testid="picture"]',
+          'img.poly-component__picture, img[data-testid="picture"], img.ui-search-result-image__element',
         )
         const image = imgEl?.src ?? imgEl?.getAttribute('data-src') ?? ''
 
@@ -171,7 +207,9 @@ async function scrapeProductsFromPage(browserPage: Page): Promise<Product[]> {
           .querySelector('.poly-component__review-compacted .polylabel-label')
           ?.textContent?.trim()
         const seller = item.querySelector('.poly-component__seller')?.textContent?.trim()
-        const cond = item.querySelector('.poly-component__subtitle')?.textContent?.trim()
+        const cond =
+          item.querySelector('.poly-component__subtitle')?.textContent?.trim()
+          ?? item.querySelector('.ui-search-item__subtitle')?.textContent?.trim()
 
         const priceStr = curFraction ? `R$ ${curFraction},${curCents ?? '00'}` : ''
         const priceNum = curFraction
@@ -204,17 +242,60 @@ async function scrapeProductsFromPage(browserPage: Page): Promise<Product[]> {
 }
 
 async function loadSearchPage(browserPage: Page, url: string): Promise<Product[]> {
-  let itemsFound = await navigateAndCount(browserPage, url)
-  if (itemsFound === 0) {
-    await browserPage.waitForTimeout(1_500)
-    itemsFound = await navigateAndCount(browserPage, url)
+  await browserPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 })
+  await dismissCookieBanner(browserPage)
+  await browserPage
+    .waitForSelector('li.ui-search-layout__item, .account-verification-main', {
+      timeout: 12_000,
+    })
+    .catch(() => null)
+
+  if (await isBlockedPage(browserPage)) {
+    throw new MlScrapeBlockedError()
   }
+
+  let itemsFound = await countResultItems(browserPage)
+  if (itemsFound === 0) {
+    await browserPage.waitForTimeout(2_000)
+    itemsFound = await countResultItems(browserPage)
+  }
+
+  if (itemsFound === 0) return []
   return scrapeProductsFromPage(browserPage)
+}
+
+async function loadSearchPageWithFallback(
+  browserPage: Page,
+  query: string,
+  sortBy: SortBy,
+  page: number,
+  condition: Condition,
+): Promise<{ products: Product[]; sortUsed: SortBy }> {
+  const primaryUrl = buildSearchUrl(query, sortBy, page, condition)
+  let products = await loadSearchPage(browserPage, primaryUrl)
+  if (products.length > 0 || sortBy === 'relevance') {
+    return { products, sortUsed: sortBy }
+  }
+
+  const fallbackUrl = buildSearchUrl(query, 'relevance', page, condition)
+  products = await loadSearchPage(browserPage, fallbackUrl)
+  return { products, sortUsed: 'relevance' }
+}
+
+function stampProducts(products: Product[], excludeIds: string[]): SearchResult {
+  const exclude = new Set(excludeIds)
+  const scrapedCount = products.length
+  const filtered = exclude.size > 0 ? products.filter((p) => !exclude.has(p.id)) : products
+  const now = Date.now()
+  return {
+    products: filtered.map((p) => ({ ...p, detectedAt: now })),
+    scrapedCount,
+  }
 }
 
 export async function searchProducts(
   query: string,
-  sortBy: SortBy = 'recent',
+  sortBy: SortBy = 'relevance',
   page = 1,
   condition: Condition = 'all',
   excludeIds: string[] = [],
@@ -224,20 +305,14 @@ export async function searchProducts(
   try {
     const context = await createScrapeContext(browser)
     const browserPage = await context.newPage()
-    const products = await loadSearchPage(
+    const { products } = await loadSearchPageWithFallback(
       browserPage,
-      buildSearchUrl(query, sortBy, page, condition),
+      query,
+      sortBy,
+      page,
+      condition,
     )
-
-    const exclude = new Set(excludeIds)
-    const scrapedCount = products.length
-    const filtered = exclude.size > 0 ? products.filter((p) => !exclude.has(p.id)) : products
-    const now = Date.now()
-
-    return {
-      products: filtered.map((p) => ({ ...p, detectedAt: now })),
-      scrapedCount,
-    }
+    return stampProducts(products, excludeIds)
   } finally {
     await browser.close()
   }
@@ -246,7 +321,7 @@ export async function searchProducts(
 /** Scrape consecutive ML pages in one browser session (deduped, page order). */
 export async function scrapeSearchPages(
   query: string,
-  sortBy: SortBy = 'recent',
+  sortBy: SortBy = 'relevance',
   condition: Condition = 'all',
   maxPages = 8,
   startPage = 1,
@@ -260,17 +335,21 @@ export async function scrapeSearchPages(
     const seen = new Set<string>()
     let page1: Product[] = []
     let hasMore = false
+    let sortUsed = sortBy
 
     for (let attempt = 0; attempt < maxPages; attempt++) {
-      const page = startPage + attempt
-      const products = await loadSearchPage(
+      const pageNum = startPage + attempt
+      const { products, sortUsed: used } = await loadSearchPageWithFallback(
         browserPage,
-        buildSearchUrl(query, sortBy, page, condition),
+        query,
+        sortUsed,
+        pageNum,
+        condition,
       )
+      sortUsed = used
 
       hasMore = products.length >= ML_PAGE_STEP
-
-      if (page === startPage) page1 = products
+      if (pageNum === startPage) page1 = products
 
       for (const p of products) {
         if (!seen.has(p.id)) {
@@ -298,7 +377,7 @@ export async function scrapeSearchPages(
 /** Walk ML pages in one browser session until enough new (unseen) products are found. */
 export async function searchMoreProducts(
   query: string,
-  sortBy: SortBy = 'recent',
+  sortBy: SortBy = 'relevance',
   startPage: number,
   condition: Condition = 'all',
   excludeIds: string[] = [],
@@ -314,16 +393,21 @@ export async function searchMoreProducts(
     const collected: Product[] = []
     let lastPage = startPage - 1
     let hasMore = false
+    let sortUsed = sortBy
 
     for (let attempt = 0; attempt < maxPages && collected.length < minNew; attempt++) {
-      const page = startPage + attempt
-      const products = await loadSearchPage(
+      const pageNum = startPage + attempt
+      const { products, sortUsed: used } = await loadSearchPageWithFallback(
         browserPage,
-        buildSearchUrl(query, sortBy, page, condition),
+        query,
+        sortUsed,
+        pageNum,
+        condition,
       )
+      sortUsed = used
 
       hasMore = products.length >= ML_PAGE_STEP
-      lastPage = page
+      lastPage = pageNum
 
       for (const p of products) {
         if (!seen.has(p.id)) {

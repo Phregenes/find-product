@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import {
   searchProducts,
   searchMoreProducts,
+  MlScrapeBlockedError,
   ML_PAGE_STEP,
   type SortBy,
   type Condition,
@@ -96,7 +97,7 @@ export async function GET(request: NextRequest) {
 
   const userId = claims.claims.sub as string
   const q = request.nextUrl.searchParams.get('q')?.trim()
-  const sort = (request.nextUrl.searchParams.get('sort') ?? 'recent') as SortBy
+  const sort = (request.nextUrl.searchParams.get('sort') ?? 'relevance') as SortBy
   const page = Math.max(1, parseInt(request.nextUrl.searchParams.get('page') ?? '1', 10))
   const condition = (request.nextUrl.searchParams.get('condition') ?? 'all') as Condition
   const exclude = request.nextUrl.searchParams.get('exclude')?.split(',').filter(Boolean) ?? []
@@ -347,6 +348,9 @@ export async function GET(request: NextRequest) {
       fromCache: false,
     })
   } catch (err) {
+    if (err instanceof MlScrapeBlockedError) {
+      return Response.json({ error: err.message, code: err.code }, { status: 503 })
+    }
     const msg = toErrorMessage(err)
     console.error('[search] error:', msg)
     await writeHeartbeat('ml_scrape', 'error', msg.slice(0, 500)).catch(() => {})

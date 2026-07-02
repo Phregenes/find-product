@@ -13,6 +13,8 @@ import {
   addSeenIds,
 } from '@/lib/monitors'
 import CreateMonitorModal, { type CreateMonitorOptions } from '@/app/components/CreateMonitorModal'
+import MonitorDetailsModal from '@/app/components/MonitorDetailsModal'
+import DeleteMonitorModal from '@/app/components/DeleteMonitorModal'
 import { filterModeLabel } from '@/lib/monitor-filter'
 import { createClient } from '@/lib/supabase/client'
 import type { Product, Condition } from '@/lib/product'
@@ -243,6 +245,14 @@ export default function MonitorApp() {
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [createModalQuery, setCreateModalQuery] = useState('')
+  const [detailsMonitor, setDetailsMonitor] = useState<MonitorWithSearch | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<MonitorWithSearch | null>(null)
+
+  useEffect(() => {
+    if (!detailsMonitor) return
+    const updated = monitors.find((m) => m.id === detailsMonitor.id)
+    if (updated) setDetailsMonitor(updated)
+  }, [monitors, detailsMonitor?.id])
 
   const activeMonitor = activeId ? monitors.find((m) => m.id === activeId) ?? null : null
 
@@ -271,7 +281,7 @@ export default function MonitorApp() {
     const condition = monitor.searches?.condition ?? 'all'
     try {
       const res = await fetch(
-        `/api/search?q=${encodeURIComponent(monitor.query)}&sort=recent&page=1&condition=${condition}&monitorId=${encodeURIComponent(monitor.id)}&discover=1`,
+        `/api/search?q=${encodeURIComponent(monitor.query)}&sort=relevance&page=1&condition=${condition}&monitorId=${encodeURIComponent(monitor.id)}&discover=1`,
         { signal: controller.signal },
       )
       const data = await res.json()
@@ -332,7 +342,7 @@ export default function MonitorApp() {
     const forceParam = options?.force ? '&force=1' : ''
     try {
       const res = await fetch(
-        `/api/search?q=${encodeURIComponent(monitor.query)}&sort=recent&page=1&condition=${condition}&monitorId=${encodeURIComponent(monitor.id)}${forceParam}`,
+        `/api/search?q=${encodeURIComponent(monitor.query)}&sort=relevance&page=1&condition=${condition}&monitorId=${encodeURIComponent(monitor.id)}${forceParam}`,
         { signal: controller.signal },
       )
       const data = await res.json()
@@ -410,7 +420,7 @@ export default function MonitorApp() {
       })
       const exclude = current.map((p) => p.id).join(',')
       const res = await fetch(
-        `/api/search?q=${encodeURIComponent(monitor.query)}&sort=recent&page=${nextPage}&condition=${condition}&exclude=${exclude}&minNew=20&monitorId=${encodeURIComponent(monitor.id)}`,
+        `/api/search?q=${encodeURIComponent(monitor.query)}&sort=relevance&page=${nextPage}&condition=${condition}&exclude=${exclude}&minNew=20&monitorId=${encodeURIComponent(monitor.id)}`,
         { signal: controller.signal },
       )
       const data = await res.json()
@@ -515,6 +525,11 @@ export default function MonitorApp() {
   }, [intervalMin, activeId, refreshMonitors, fetchProducts])
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
+  function selectMonitor(entry: MonitorWithSearch) {
+    setDetailsMonitor(null)
+    fetchProducts(entry)
+  }
+
   function openCreateModal(prefill?: string) {
     setCreateModalQuery(prefill ?? searchInput.trim())
     setCreateModalOpen(true)
@@ -556,6 +571,7 @@ export default function MonitorApp() {
 
   async function handleRemoveMonitor(id: string) {
     await deleteMonitor(id).catch(() => {})
+    if (detailsMonitor?.id === id) setDetailsMonitor(null)
     const list = await refreshMonitors()
     setPlanUsage((u) => u ? { ...u, monitors: list.length } : u)
     if (activeId === id) {
@@ -710,7 +726,7 @@ export default function MonitorApp() {
               >
                 <button
                   type="button"
-                  onClick={() => fetchProducts(entry)}
+                  onClick={() => selectMonitor(entry)}
                   className="flex items-center gap-1.5 whitespace-nowrap"
                 >
                   <span className="capitalize">{entry.query}</span>
@@ -730,7 +746,7 @@ export default function MonitorApp() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleRemoveMonitor(entry.id)}
+                  onClick={() => setDeleteTarget(entry)}
                   className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-white transition hover:bg-red-500 sm:h-5 sm:w-5 sm:opacity-0 sm:group-hover:opacity-100 ${
                     activeId === entry.id
                       ? 'bg-white/25 dark:bg-zinc-900/25'
@@ -860,6 +876,18 @@ export default function MonitorApp() {
                 </>
               )}
 
+              <button
+                type="button"
+                onClick={() => setDetailsMonitor(activeMonitor)}
+                className="flex items-center gap-1 rounded-lg border border-zinc-200 px-2.5 py-1 text-xs font-medium text-zinc-500 transition hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+              >
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                Visualizar
+              </button>
+
               <span className="ml-auto text-[11px] text-zinc-400 sm:hidden">
                 Atualiza a cada {intervalMin} min
               </span>
@@ -967,6 +995,18 @@ export default function MonitorApp() {
           </div>
         )}
       </main>
+
+      <DeleteMonitorModal
+        monitor={deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleRemoveMonitor}
+      />
+
+      <MonitorDetailsModal
+        monitor={detailsMonitor}
+        planEmailAlerts={planUsage?.plan.emailAlerts}
+        onClose={() => setDetailsMonitor(null)}
+      />
 
       <CreateMonitorModal
         open={createModalOpen}
