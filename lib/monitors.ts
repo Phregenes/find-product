@@ -21,6 +21,7 @@ export interface MonitorRow {
   new_count: number
   filter_mode: MonitorFilterMode
   exclude_terms: string[]
+  email_alerts: boolean
   snapshot_products?: Product[] | null
   snapshot_at?: string | null
   created_at: string
@@ -53,6 +54,7 @@ export async function createMonitor(
     condition?: Condition
     filterMode?: MonitorFilterMode
     excludeTerms?: string[]
+    emailAlerts?: boolean
   },
 ): Promise<MonitorWithSearch> {
   const res = await fetch('/api/monitors', {
@@ -63,6 +65,7 @@ export async function createMonitor(
       condition: options?.condition ?? 'all',
       filter_mode: options?.filterMode ?? 'default',
       exclude_terms: options?.excludeTerms ?? [],
+      email_alerts: options?.emailAlerts ?? true,
     }),
   })
   const data = await res.json()

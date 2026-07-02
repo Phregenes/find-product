@@ -41,11 +41,14 @@ export async function POST(request: NextRequest) {
   const excludeTerms = Array.isArray(body.exclude_terms)
     ? (body.exclude_terms as string[]).map((t) => String(t).trim()).filter(Boolean)
     : []
+  const emailAlertsRequested = body.email_alerts !== false
   if (!query) return Response.json({ error: 'Query obrigatória' }, { status: 400 })
 
   try {
     const search = await resolveSearch(query, DEFAULT_SORT, condition)
     const admin = createAdminClient()
+    const plan = await getUserPlan(userId)
+    const emailAlerts = plan.emailAlerts && emailAlertsRequested
 
     // Changing condition on an existing monitor does not count as a new slot.
     const { data: existing } = await admin
@@ -56,7 +59,6 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
 
     if (!existing) {
-      const plan = await getUserPlan(userId)
       const count = await countUserMonitors(userId)
       if (count >= plan.monitorLimit) {
         return Response.json(
@@ -80,6 +82,7 @@ export async function POST(request: NextRequest) {
           query,
           filter_mode: filterMode,
           exclude_terms: excludeTerms,
+          email_alerts: emailAlerts,
         },
         { onConflict: 'user_id,search_id' },
       )

@@ -526,6 +526,7 @@ export default function MonitorApp() {
         condition: options.condition,
         filterMode: options.filterMode,
         excludeTerms: options.excludeTerms,
+        emailAlerts: options.emailAlerts,
       })
       setCreateModalOpen(false)
       setSearchInput('')
@@ -973,6 +974,7 @@ export default function MonitorApp() {
         atLimit={atMonitorLimit}
         planName={planUsage?.plan.name}
         monitorLimit={planUsage?.monitorLimit}
+        planEmailAlerts={planUsage?.plan.emailAlerts}
         onClose={() => setCreateModalOpen(false)}
         onSubmit={handleCreateMonitor}
       />

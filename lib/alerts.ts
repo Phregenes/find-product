@@ -36,6 +36,7 @@ interface MonitorRow {
   last_notified_item_ids: string[] | null
   filter_mode: MonitorFilterMode
   exclude_terms: string[] | null
+  email_alerts: boolean
 }
 
 /** Update snapshots, counts and emails — only for monitors due on their plan interval. */
@@ -50,7 +51,7 @@ export async function processMonitorAlerts(
 
   const { data: monitors, error: mErr } = await admin
     .from('monitors')
-    .select('id, user_id, query, snapshot_at, last_notified_item_ids, filter_mode, exclude_terms')
+    .select('id, user_id, query, snapshot_at, last_notified_item_ids, filter_mode, exclude_terms, email_alerts')
     .eq('search_id', searchId)
   if (mErr) throw mErr
   if (!monitors?.length) return results
@@ -130,7 +131,11 @@ export async function processMonitorAlerts(
     let emailSkippedDuplicate = false
 
     const canEmail =
-      newCount > 0 && profile.email && profile.emailAlerts && plan.emailAlerts
+      newCount > 0
+      && profile.email
+      && profile.emailAlerts
+      && plan.emailAlerts
+      && monitor.email_alerts !== false
 
     if (canEmail) {
       if (!hasItemsNotYetNotified(newProductIds, lastNotifiedIds)) {

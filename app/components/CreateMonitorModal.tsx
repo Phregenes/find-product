@@ -13,6 +13,7 @@ export interface CreateMonitorOptions {
   condition: Condition
   filterMode: MonitorFilterMode
   excludeTerms: string[]
+  emailAlerts: boolean
 }
 
 interface CreateMonitorModalProps {
@@ -21,6 +22,7 @@ interface CreateMonitorModalProps {
   atLimit: boolean
   planName?: string
   monitorLimit?: number
+  planEmailAlerts?: boolean
   onClose: () => void
   onSubmit: (options: CreateMonitorOptions) => void | Promise<void>
 }
@@ -31,6 +33,7 @@ export default function CreateMonitorModal({
   atLimit,
   planName,
   monitorLimit,
+  planEmailAlerts = false,
   onClose,
   onSubmit,
 }: CreateMonitorModalProps) {
@@ -38,6 +41,7 @@ export default function CreateMonitorModal({
   const [condition, setCondition] = useState<Condition>('all')
   const [filterMode, setFilterMode] = useState<MonitorFilterMode>('default')
   const [excludeInput, setExcludeInput] = useState('')
+  const [emailAlerts, setEmailAlerts] = useState(true)
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -46,9 +50,10 @@ export default function CreateMonitorModal({
       setCondition('all')
       setFilterMode('default')
       setExcludeInput('')
+      setEmailAlerts(planEmailAlerts)
       setSubmitting(false)
     }
-  }, [open, initialQuery])
+  }, [open, initialQuery, planEmailAlerts])
 
   useEffect(() => {
     if (!open) return
@@ -72,6 +77,7 @@ export default function CreateMonitorModal({
         condition,
         filterMode,
         excludeTerms: parseExcludeTermsInput(excludeInput),
+        emailAlerts: planEmailAlerts && emailAlerts,
       })
     } finally {
       setSubmitting(false)
@@ -189,6 +195,32 @@ export default function CreateMonitorModal({
                 />
                 <span className="text-[11px] text-zinc-400">Separe por vírgula</span>
               </label>
+            )}
+
+            {planEmailAlerts ? (
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-zinc-200 p-3 transition hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800/50">
+                <input
+                  type="checkbox"
+                  checked={emailAlerts}
+                  onChange={(e) => setEmailAlerts(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-yellow-500 focus:ring-yellow-400"
+                />
+                <span className="flex flex-col gap-0.5">
+                  <span className="text-sm font-medium text-zinc-900 dark:text-white">
+                    Avisar por e-mail
+                  </span>
+                  <span className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+                    Receba um e-mail quando surgirem anúncios novos neste monitor.
+                  </span>
+                </span>
+              </label>
+            ) : (
+              <p className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-400">
+                Alertas por e-mail estão disponíveis no plano Lojista ou superior.{' '}
+                <a href="/planos" className="font-medium text-yellow-600 hover:underline dark:text-yellow-400">
+                  Ver planos
+                </a>
+              </p>
             )}
 
             {atLimit && planName && (
