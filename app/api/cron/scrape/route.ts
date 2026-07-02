@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import type { Condition, SortBy, Product } from '@/lib/product'
-import { scrapeSearchPages, ML_PAGE_STEP } from '@/lib/scraper'
+import { scrapeSearchPages, ML_PAGE_STEP, MONITOR_SCRAPE_MAX_PAGES } from '@/lib/scraper'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { writeCache, readCachePage } from '@/lib/searches'
 import { processMonitorAlerts } from '@/lib/alerts'
@@ -152,7 +152,7 @@ export async function GET(request: NextRequest) {
       let hasMore = false
 
       if (needScrape) {
-        const scraped = await scrapeSearchPages(search.query, search.sort_by, search.condition, 8, 1)
+        const scraped = await scrapeSearchPages(search.query, search.sort_by, search.condition, MONITOR_SCRAPE_MAX_PAGES, 1)
         page1 = scraped.page1
         allPages = scraped.allPages
         hasMore = scraped.hasMore
@@ -174,7 +174,7 @@ export async function GET(request: NextRequest) {
         allPages = cached!.products
         hasMore = page1.length >= ML_PAGE_STEP
         if (hasMore) {
-          const extra = await scrapeSearchPages(search.query, search.sort_by, search.condition, 7, 2)
+          const extra = await scrapeSearchPages(search.query, search.sort_by, search.condition, MONITOR_SCRAPE_MAX_PAGES - 1, 2)
           const known = new Set(page1.map((p) => p.id))
           allPages = [...page1]
           for (const p of extra.allPages) {
@@ -187,7 +187,7 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      const alerts = await processMonitorAlerts(search.id, allPages, page1, now)
+      const alerts = await processMonitorAlerts(search.id, allPages, now)
       const emailsSent = alerts.filter((a) => a.emailed).length
 
       results.push({

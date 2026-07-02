@@ -133,6 +133,16 @@ export function sharedCacheStaleForPlan(
   return elapsedMin >= plan.checkIntervalMinutes
 }
 
+/** Products stored on the monitor row (cron writes filtered catalog). */
+export function monitorSnapshotProducts(
+  monitor: MonitorSnapshotRow,
+  searchId: string,
+): Product[] {
+  const forSearch = snapshotForSearch(monitor, searchId)
+  if (forSearch.length > 0) return forSearch
+  return monitor.snapshot_products ?? []
+}
+
 /** Prefer monitor snapshot for this search, then any snapshot, then shared cache. */
 export function productFallback(
   monitor: MonitorSnapshotRow,

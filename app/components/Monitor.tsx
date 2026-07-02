@@ -19,7 +19,7 @@ import { filterModeLabel } from '@/lib/monitor-filter'
 import { createClient } from '@/lib/supabase/client'
 import type { Product, Condition } from '@/lib/product'
 import type { PlanConfig } from '@/lib/plans'
-import { ML_PAGE_STEP } from '@/lib/product'
+import { formatRefreshMinutes } from '@/lib/plans'
 
 interface PlanUsage {
   plan: PlanConfig
@@ -39,23 +39,6 @@ function formatDetectedAt(ts: number): string {
   return new Date(ts).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
 }
 
-/** Append incoming products, skipping IDs already in the list. */
-function mergeProducts(existing: Product[], incoming: Product[]): Product[] {
-  const seen = new Set(existing.map((p) => p.id))
-  const merged = [...existing]
-  for (const p of incoming) {
-    if (!seen.has(p.id)) {
-      seen.add(p.id)
-      merged.push(p)
-    }
-  }
-  return merged
-}
-
-function productsToNewIds(products: Product[], seen: Set<string>): Set<string> {
-  return new Set(products.filter((p) => !seen.has(p.id)).map((p) => p.id))
-}
-
 /** Keep the previous list when a background refresh returns nothing. */
 function resolveRefreshProducts(
   previous: Product[],
@@ -65,6 +48,16 @@ function resolveRefreshProducts(
   if (incoming.length > 0) return incoming
   if (opts.switching || opts.force) return incoming
   return previous.length > 0 ? previous : incoming
+}
+
+function productsToNewIds(products: Product[], seen: Set<string>): Set<string> {
+  return new Set(products.filter((p) => !seen.has(p.id)).map((p) => p.id))
+}
+
+function formatNextUpdate(minutes: number, awaitingFirstScan: boolean): string {
+  if (awaitingFirstScan) return 'aguardando primeira varredura'
+  if (minutes <= 0) return 'atualizando em breve'
+  return `próxima atualização em ${formatRefreshMinutes(minutes)}`
 }
 
 function relativeTime(ts: number, now: number): string {
@@ -209,18 +202,20 @@ function Skeleton() {
 
 interface ViewState {
   loading: boolean
-  loadingMore: boolean
   error: string | null
   products: Product[]
   newIds: Set<string>
-  page: number
-  hasMore: boolean
-  isInitialCatalog: boolean
+  awaitingFirstScan: boolean
+  nextUpdateInMin: number
 }
 
 const EMPTY_VIEW: ViewState = {
-  loading: false, loadingMore: false, error: null,
-  products: [], newIds: new Set(), page: 1, hasMore: true, isInitialCatalog: false,
+  loading: false,
+  error: null,
+  products: [],
+  newIds: new Set(),
+  awaitingFirstScan: false,
+  nextUpdateInMin: 0,
 }
 
 export default function MonitorApp() {
@@ -238,9 +233,7 @@ export default function MonitorApp() {
   const activeIdRef = useRef<string | null>(null)
   const fetchGenerationRef = useRef(0)
   const fetchAbortRef = useRef<AbortController | null>(null)
-  const loadMoreAbortRef = useRef<AbortController | null>(null)
   const viewStateRef = useRef<ViewState>(EMPTY_VIEW)
-  const discoverAbortRef = useRef<AbortController | null>(null)
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const monitorViewCacheRef = useRef<Map<string, ViewState>>(new Map())
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
@@ -267,56 +260,7 @@ export default function MonitorApp() {
 
   function abortInFlightFetches(): void {
     fetchAbortRef.current?.abort()
-    discoverAbortRef.current?.abort()
-    loadMoreAbortRef.current?.abort()
   }
-
-  // ── Fetch products for a monitor (page 1) ─────────────────────────────────
-  const discoverNew = useCallback(async (monitor: MonitorWithSearch, generation: number) => {
-    if (!isActiveFetch(monitor.id, generation)) return
-
-    discoverAbortRef.current?.abort()
-    const controller = new AbortController()
-    discoverAbortRef.current = controller
-
-    const condition = monitor.searches?.condition ?? 'all'
-    try {
-      const res = await fetch(
-        `/api/search?q=${encodeURIComponent(monitor.query)}&sort=relevance&page=1&condition=${condition}&monitorId=${encodeURIComponent(monitor.id)}&discover=1`,
-        { signal: controller.signal },
-      )
-      const data = await res.json()
-      if (!res.ok || data.error || !isActiveFetch(monitor.id, generation)) return
-
-      const incoming = (data.products as Product[]) ?? []
-      if (incoming.length === 0) return
-
-      let newIds: Set<string>
-      if (Array.isArray(data.newProductIds)) {
-        newIds = new Set(data.newProductIds as string[])
-      } else {
-        const seen = await getSeenIds(monitor.id)
-        if (!isActiveFetch(monitor.id, generation)) return
-        newIds = productsToNewIds(incoming, seen)
-      }
-
-      setMonitors((prevMonitors) =>
-        prevMonitors.map((m) => (m.id === monitor.id ? { ...m, new_count: newIds.size } : m)),
-      )
-      setViewState((s) => {
-        const next: ViewState = {
-          ...s,
-          products: incoming,
-          newIds,
-          hasMore: data.mlPageFull ?? incoming.length >= ML_PAGE_STEP,
-        }
-        monitorViewCacheRef.current.set(monitor.id, next)
-        return next
-      })
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') return
-    }
-  }, [])
 
   const fetchProducts = useCallback(async (
     monitor: MonitorWithSearch,
@@ -343,33 +287,22 @@ export default function MonitorApp() {
       if (cachedView) {
         setViewState({ ...cachedView, loading: true, error: null })
       } else {
-        setViewState({
-          loading: true,
-          loadingMore: false,
-          error: null,
-          products: [],
-          newIds: new Set(),
-          page: 1,
-          hasMore: true,
-          isInitialCatalog: false,
-        })
+        setViewState({ ...EMPTY_VIEW, loading: true })
       }
     } else {
       setViewState((s) => ({ ...s, loading: true, error: null }))
     }
 
     const condition = monitor.searches?.condition ?? 'all'
-    const forceParam = options?.force ? '&force=1' : ''
     try {
       const res = await fetch(
-        `/api/search?q=${encodeURIComponent(monitor.query)}&sort=relevance&page=1&condition=${condition}&monitorId=${encodeURIComponent(monitor.id)}${forceParam}`,
+        `/api/search?q=${encodeURIComponent(monitor.query)}&sort=relevance&page=1&condition=${condition}&monitorId=${encodeURIComponent(monitor.id)}`,
         { signal: controller.signal },
       )
       const data = await res.json()
       if (!isActiveFetch(monitor.id, generation)) return
       if (!res.ok || data.error) throw new Error(data.error ?? 'Erro ao buscar')
 
-      const initialCatalog = !!data.initialCatalog
       const incoming = (data.products as Product[]) ?? []
       const prev = viewStateRef.current
       const products = switchingMonitor
@@ -380,9 +313,7 @@ export default function MonitorApp() {
           })
 
       let newIds: Set<string>
-      if (initialCatalog) {
-        newIds = new Set<string>()
-      } else if (Array.isArray(data.newProductIds)) {
+      if (Array.isArray(data.newProductIds)) {
         newIds = new Set(data.newProductIds as string[])
       } else {
         const seen = await getSeenIds(monitor.id)
@@ -390,101 +321,28 @@ export default function MonitorApp() {
         newIds = productsToNewIds(products, seen)
       }
 
-      if (initialCatalog) {
-        setMonitors((prevMonitors) =>
-          prevMonitors.map((m) => (m.id === monitor.id ? { ...m, new_count: 0 } : m)),
-        )
-      } else {
-        setMonitors((prevMonitors) =>
-          prevMonitors.map((m) => (m.id === monitor.id ? { ...m, new_count: newIds.size } : m)),
-        )
-      }
+      setMonitors((prevMonitors) =>
+        prevMonitors.map((m) => (m.id === monitor.id ? { ...m, new_count: newIds.size } : m)),
+      )
 
       const nextView: ViewState = {
         loading: false,
-        loadingMore: false,
         error: null,
         products,
         newIds,
-        page: 1,
-        hasMore: incoming.length > 0
-          ? (data.mlPageFull ?? incoming.length >= ML_PAGE_STEP)
-          : prev.hasMore,
-        isInitialCatalog: initialCatalog,
+        awaitingFirstScan: !!data.awaitingFirstScan,
+        nextUpdateInMin: typeof data.nextUpdateInMin === 'number' ? data.nextUpdateInMin : 0,
       }
       monitorViewCacheRef.current.set(monitor.id, nextView)
       setViewState(nextView)
-
-      const filterActive = monitor.filter_mode !== 'default'
-      const mlMayHaveMore = data.mlPageFull ?? incoming.length >= ML_PAGE_STEP
-      const shouldDeepScan =
-        incoming.length > 0 && (data.stale || (filterActive && !mlMayHaveMore))
-      if (shouldDeepScan) {
-        void discoverNew(monitor, generation)
-      }
     } catch (err) {
       if ((err as Error).name === 'AbortError') return
       if (!isActiveFetch(monitor.id, generation)) return
       setViewState({
-        loading: false, loadingMore: false,
+        ...EMPTY_VIEW,
+        loading: false,
         error: (err as Error).message,
-        products: [],
-        newIds: new Set(),
-        page: 1,
-        hasMore: false,
-        isInitialCatalog: false,
       })
-    }
-  }, [discoverNew])
-
-  // ── Load more ──────────────────────────────────────────────────────────────
-  const loadMore = useCallback(async (monitor: MonitorWithSearch, nextPage: number) => {
-    if (activeIdRef.current !== monitor.id) return
-
-    loadMoreAbortRef.current?.abort()
-    const controller = new AbortController()
-    loadMoreAbortRef.current = controller
-
-    setViewState((s) => ({ ...s, loadingMore: true }))
-    const condition = monitor.searches?.condition ?? 'all'
-    const monitorId = monitor.id
-    try {
-      let current: Product[] = []
-      await new Promise<void>((resolve) => {
-        setViewState((s) => { current = [...s.products]; resolve(); return s })
-      })
-      const exclude = current.map((p) => p.id).join(',')
-      const res = await fetch(
-        `/api/search?q=${encodeURIComponent(monitor.query)}&sort=relevance&page=${nextPage}&condition=${condition}&exclude=${exclude}&minNew=20&monitorId=${encodeURIComponent(monitor.id)}`,
-        { signal: controller.signal },
-      )
-      const data = await res.json()
-      if (activeIdRef.current !== monitorId) return
-      if (!res.ok || data.error) throw new Error(data.error)
-      const incoming = data.products as Product[]
-      const seen = await getSeenIds(monitorId)
-      if (activeIdRef.current !== monitorId) return
-      setViewState((s) => {
-        const merged = mergeProducts(s.products, incoming)
-        const newIds = productsToNewIds(merged, seen)
-        if (activeIdRef.current === monitorId) {
-          setMonitors((prev) =>
-            prev.map((m) => (m.id === monitorId ? { ...m, new_count: newIds.size } : m)),
-          )
-        }
-        return {
-          ...s,
-          loadingMore: false,
-          products: merged,
-          newIds,
-          page: data.page ?? nextPage,
-          hasMore: data.mlPageFull === true,
-        }
-      })
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') return
-      if (activeIdRef.current !== monitorId) return
-      setViewState((s) => ({ ...s, loadingMore: false, hasMore: false }))
     }
   }, [])
 
@@ -600,7 +458,7 @@ export default function MonitorApp() {
   async function handleMarkSeen() {
     if (!activeMonitor || viewState.newIds.size === 0) return
     await addSeenIds(activeMonitor.id, [...viewState.newIds]).catch(() => {})
-    setViewState((s) => ({ ...s, newIds: new Set(), isInitialCatalog: false }))
+    setViewState((s) => ({ ...s, newIds: new Set() }))
     setMonitors((prev) => prev.map((m) => (m.id === activeMonitor.id ? { ...m, new_count: 0 } : m)))
   }
 
@@ -864,13 +722,18 @@ export default function MonitorApp() {
                   </svg>
                 )}
                 <span className="shrink-0 text-xs text-zinc-400">
-                  {viewState.loading ? 'buscando...' : relativeTime(lastCheckedMs(activeMonitor), now)}
+                  {viewState.loading
+                    ? 'carregando...'
+                    : viewState.awaitingFirstScan || viewState.products.length === 0
+                      ? formatNextUpdate(viewState.nextUpdateInMin, viewState.awaitingFirstScan)
+                      : relativeTime(lastCheckedMs(activeMonitor), now)}
                 </span>
               </div>
 
               <button
                 onClick={() => fetchProducts(activeMonitor, { force: true })}
                 disabled={viewState.loading}
+                title="Recarregar dados do banco"
                 className="flex shrink-0 items-center gap-1 rounded-lg border border-zinc-200 px-2.5 py-1 text-xs font-medium text-zinc-500 transition hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
               >
                 <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -924,7 +787,7 @@ export default function MonitorApp() {
               </button>
 
               <span className="ml-auto text-[11px] text-zinc-400 sm:hidden">
-                Atualiza a cada {intervalMin} min
+                Cron a cada {formatRefreshMinutes(planUsage?.plan.checkIntervalMinutes ?? intervalMin)}
               </span>
             </div>
           </div>
@@ -940,22 +803,8 @@ export default function MonitorApp() {
           </div>
         )}
 
-        {/* Initial catalog — first time user sees this monitor */}
-        {!viewState.loading && !viewState.error && viewState.isInitialCatalog && viewState.products.length > 0 && (
-          <div className="mb-4 flex items-start gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2.5 text-xs text-blue-800 sm:px-4 sm:py-3 sm:text-sm dark:border-blue-900/30 dark:bg-blue-950/20 dark:text-blue-300">
-            <svg className="mt-0.5 h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <p>
-              <strong>{viewState.products.length} anúncios</strong> encontrados agora no ML.
-              Salvamos esta lista como referência — nas próximas atualizações destacamos só o que for{' '}
-              <strong>novo</strong> desde então.
-            </p>
-          </div>
-        )}
-
         {/* No new products notice */}
-        {!viewState.loading && !viewState.error && !viewState.isInitialCatalog && viewState.products.length > 0 && viewState.newIds.size === 0 && lastCheckedMs(activeMonitor) > 0 && (
+        {!viewState.loading && !viewState.error && viewState.products.length > 0 && viewState.newIds.size === 0 && lastCheckedMs(activeMonitor) > 0 && (
           <div className="mb-4 flex items-center gap-2 rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500 sm:px-4 sm:py-3 sm:text-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
             <svg className="h-3.5 w-3.5 shrink-0 text-green-500 sm:h-4 sm:w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -967,66 +816,55 @@ export default function MonitorApp() {
         {/* Loading */}
         {viewState.loading && <Skeleton />}
 
-        {/* Empty results — scrape failed or no listings */}
+        {/* Empty results */}
         {!viewState.loading && !viewState.error && activeMonitor && viewState.products.length === 0 && (
           <div className="flex flex-col items-center gap-3 rounded-xl border border-zinc-100 bg-white px-4 py-10 text-center dark:border-zinc-800 dark:bg-zinc-900">
-            <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
-              Nenhum anúncio encontrado para &ldquo;{activeMonitor.query}&rdquo;
-            </p>
-            <p className="max-w-sm text-xs text-zinc-500 dark:text-zinc-400">
-              Pode ser bloqueio temporário do ML ou instabilidade no scrape. Tente atualizar de novo.
-            </p>
-            <button
-              onClick={() => fetchProducts(activeMonitor, { force: true })}
-              className="mt-1 rounded-xl bg-yellow-400 px-4 py-2 text-sm font-semibold text-zinc-900 transition hover:bg-yellow-300"
-            >
-              Tentar novamente
-            </button>
+            {viewState.awaitingFirstScan ? (
+              <>
+                <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
+                  Aguardando primeira varredura
+                </p>
+                <p className="max-w-sm text-xs text-zinc-500 dark:text-zinc-400">
+                  O monitor &ldquo;{activeMonitor.query}&rdquo; foi criado. O cron varre o ML automaticamente
+                  a cada {formatRefreshMinutes(planUsage?.plan.checkIntervalMinutes ?? 1440)} — os resultados
+                  aparecem aqui assim que a primeira busca terminar.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
+                  Nenhum anúncio encontrado para &ldquo;{activeMonitor.query}&rdquo;
+                </p>
+                <p className="max-w-sm text-xs text-zinc-500 dark:text-zinc-400">
+                  Nada passou no filtro na última varredura (até 8 páginas do ML).
+                  {viewState.nextUpdateInMin > 0 && (
+                    <> Próxima tentativa em {formatRefreshMinutes(viewState.nextUpdateInMin)}.</>
+                  )}
+                </p>
+                <button
+                  onClick={() => fetchProducts(activeMonitor, { force: true })}
+                  className="mt-1 rounded-xl bg-yellow-400 px-4 py-2 text-sm font-semibold text-zinc-900 transition hover:bg-yellow-300"
+                >
+                  Recarregar
+                </button>
+              </>
+            )}
           </div>
         )}
 
         {/* Products grid */}
         {!viewState.loading && viewState.products.length > 0 && (
-          <div className="flex flex-col gap-4">
-            <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
-              {viewState.products
-                .slice()
-                .sort((a, b) => {
-                  const aNew = viewState.newIds.has(a.id) ? 1 : 0
-                  const bNew = viewState.newIds.has(b.id) ? 1 : 0
-                  return bNew - aNew
-                })
-                .map((product) => (
-                  <ProductCard key={product.id} product={product} isNew={viewState.newIds.has(product.id)} />
-                ))}
-            </div>
-
-            {viewState.hasMore && activeMonitor && (
-              <div className="flex justify-center pt-2 pb-4">
-                <button
-                  onClick={() => loadMore(activeMonitor, viewState.page + 1)}
-                  disabled={viewState.loadingMore}
-                  className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-5 py-2.5 text-sm font-medium text-zinc-600 shadow-sm transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-                >
-                  {viewState.loadingMore ? (
-                    <>
-                      <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                      Carregando...
-                    </>
-                  ) : (
-                    <>
-                      Ver mais
-                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </>
-                  )}
-                </button>
-              </div>
-            )}
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
+            {viewState.products
+              .slice()
+              .sort((a, b) => {
+                const aNew = viewState.newIds.has(a.id) ? 1 : 0
+                const bNew = viewState.newIds.has(b.id) ? 1 : 0
+                return bNew - aNew
+              })
+              .map((product) => (
+                <ProductCard key={product.id} product={product} isNew={viewState.newIds.has(product.id)} />
+              ))}
           </div>
         )}
       </main>

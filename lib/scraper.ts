@@ -7,6 +7,9 @@ import { ML_PAGE_STEP } from './product'
 export type { Product, SortBy, Condition } from './product'
 export { ML_PAGE_STEP } from './product'
 
+/** ML pages scanned per cron run for each search. */
+export const MONITOR_SCRAPE_MAX_PAGES = 8
+
 export interface SearchResult {
   products: Product[]
   /** Items on the ML page before exclude filtering */

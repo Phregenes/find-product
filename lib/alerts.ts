@@ -43,7 +43,6 @@ interface MonitorRow {
 export async function processMonitorAlerts(
   searchId: string,
   allProducts: Product[],
-  page1Products: Product[],
   now = new Date(),
 ): Promise<MonitorAlertResult[]> {
   const admin = createAdminClient()
@@ -103,10 +102,9 @@ export async function processMonitorAlerts(
 
     const seen = new Set((seenRows ?? []).map((r) => r.product_id as string))
     const monitorProducts = applyMonitorFilter(allProducts, monitor)
-    const page1Filtered = applyMonitorFilter(page1Products, monitor)
     const discovered = monitorProducts.filter((p) => !seen.has(p.id))
 
-    await saveMonitorSnapshot(monitorId, page1Filtered, searchId)
+    await saveMonitorSnapshot(monitorId, monitorProducts, searchId)
 
     if (seen.size === 0 && monitorProducts.length > 0) {
       await baselineMonitorSeen(monitorId, monitorProducts.map((p) => p.id))

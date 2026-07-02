@@ -18,18 +18,11 @@ import {
   minutesUntilSnapshotDue,
 } from '@/lib/plans'
 import {
-  getFrozenSnapshot,
   loadMonitorSnapshot,
-  productFallback,
-  saveMonitorSnapshot,
+  monitorSnapshotProducts,
 } from '@/lib/monitor-snapshot'
-import { baselineFirstVisitIfNeeded, getMonitorSeenIds } from '@/lib/monitor-seen'
-import {
-  discoverNewProducts,
-  mergeWithPendingNew,
-  scrapeMonitorCatalog,
-  syncPendingNewProducts,
-} from '@/lib/monitor-new'
+import { getMonitorSeenIds } from '@/lib/monitor-seen'
+import { mergeWithPendingNew } from '@/lib/monitor-new'
 import { writeHeartbeat } from '@/lib/ops'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { toErrorMessage } from '@/lib/error-message'
@@ -47,11 +40,11 @@ async function updateMonitorNewCount(monitorId: string, newCount: number): Promi
 async function finalizeMonitorResponse(
   monitor: MonitorSnapshotRow,
   monitorId: string,
-  page1: Product[],
+  catalog: Product[],
   jsonOpts: Parameters<typeof jsonProducts>[1],
 ) {
   const [merged, seenIds] = await Promise.all([
-    mergeWithPendingNew(monitorId, page1),
+    mergeWithPendingNew(monitorId, catalog),
     getMonitorSeenIds(monitorId),
   ])
   const products = applyMonitorFilter(merged.products, monitor)
@@ -76,7 +69,7 @@ function jsonProducts(
     stale?: boolean
     nextUpdateInMin?: number
     outsideActiveHours?: boolean
-    initialCatalog?: boolean
+    awaitingFirstScan?: boolean
     mlPageFull?: boolean
     newCount?: number
     newProductIds?: string[]
@@ -88,14 +81,14 @@ function jsonProducts(
     page: opts.page,
     condition: opts.condition,
     total: products.length,
-    mlPageFull: opts.mlPageFull ?? products.length >= ML_PAGE_STEP,
+    mlPageFull: opts.mlPageFull ?? false,
     fetchedAt: opts.fetchedAt,
     fromCache: opts.fromCache,
     frozen: opts.frozen ?? false,
     stale: opts.stale ?? false,
     nextUpdateInMin: opts.nextUpdateInMin,
     outsideActiveHours: opts.outsideActiveHours,
-    initialCatalog: opts.initialCatalog ?? false,
+    awaitingFirstScan: opts.awaitingFirstScan ?? false,
     newCount: opts.newCount,
     newProductIds: opts.newProductIds,
   })
@@ -116,7 +109,6 @@ export async function GET(request: NextRequest) {
   const exclude = request.nextUrl.searchParams.get('exclude')?.split(',').filter(Boolean) ?? []
   const minNew = parseInt(request.nextUrl.searchParams.get('minNew') ?? '0', 10)
   const force = request.nextUrl.searchParams.get('force') === '1'
-  const discover = request.nextUrl.searchParams.get('discover') === '1'
   const monitorId = request.nextUrl.searchParams.get('monitorId')?.trim() ?? null
 
   if (!q) {
@@ -125,36 +117,19 @@ export async function GET(request: NextRequest) {
 
   try {
     if (minNew > 0 && exclude.length > 0) {
+      if (monitorId) {
+        return Response.json(
+          {
+            error: 'O app varre até 8 páginas do ML automaticamente no cron — não é necessário carregar mais.',
+            code: 'CRON_ONLY',
+          },
+          { status: 400 },
+        )
+      }
+
       const { products, lastPage, hasMore } = await searchMoreProducts(
         q, sort, page, condition, exclude, minNew,
       )
-      if (monitorId && products.length > 0) {
-        const admin = createAdminClient()
-        const { data: mon } = await admin
-          .from('monitors')
-          .select('query, filter_mode, exclude_terms')
-          .eq('id', monitorId)
-          .maybeSingle()
-        if (mon) {
-          const seenIds = await getMonitorSeenIds(monitorId)
-          const filtered = applyMonitorFilter(products, mon)
-          const unseen = filtered.filter((p) => !seenIds.has(p.id))
-          if (unseen.length > 0) {
-            const pending = await syncPendingNewProducts(monitorId, unseen)
-            await updateMonitorNewCount(monitorId, pending.length)
-          }
-          return Response.json({
-            products: filtered,
-            query: q,
-            page: lastPage,
-            condition,
-            total: filtered.length,
-            mlPageFull: hasMore,
-            fetchedAt: Date.now(),
-            fromCache: false,
-          })
-        }
-      }
       return Response.json({
         products,
         query: q,
@@ -173,7 +148,7 @@ export async function GET(request: NextRequest) {
       return Response.json({ error: 'Não autenticado' }, { status: 401 })
     }
 
-    // Page 1 with monitor → per-plan frozen snapshot.
+    // Monitor page 1 — read-only from DB (cron writes snapshots).
     if (page === 1 && exclude.length === 0 && monitorId) {
       const now = new Date()
       const monitor = await loadMonitorSnapshot(monitorId, userId)
@@ -182,110 +157,23 @@ export async function GET(request: NextRequest) {
       }
 
       const search = await resolveSearch(q, sort, condition)
-      const cached = await readCachePage(search.id, page)
+      const awaitingFirstScan = !monitor.snapshot_at
       const stale = isSnapshotDue(monitor.snapshot_at, plan, now)
+      const catalog = monitorSnapshotProducts(monitor, search.id)
+      const fetchedAt = monitor.snapshot_at
+        ? new Date(monitor.snapshot_at).getTime()
+        : Date.now()
 
-      // Tab switch: return snapshot/cache immediately — never block on Playwright scrape.
-      if (!force && !discover) {
-        const instant = productFallback(monitor, cached, search.id)
-        if (instant.length > 0) {
-          const fetchedAt = monitor.snapshot_at
-            ? new Date(monitor.snapshot_at).getTime()
-            : cached
-              ? new Date(cached.scraped_at).getTime()
-              : Date.now()
-          return finalizeMonitorResponse(monitor, monitorId, instant, {
-            q,
-            page,
-            condition,
-            fetchedAt,
-            fromCache: true,
-            frozen: !stale,
-            stale,
-            nextUpdateInMin: stale
-              ? 0
-              : Math.ceil(minutesUntilSnapshotDue(monitor.snapshot_at, plan, now)),
-            mlPageFull: instant.length >= ML_PAGE_STEP,
-          })
-        }
-      }
+      const nextUpdateInMin = awaitingFirstScan
+        ? 0
+        : stale
+          ? 0
+          : Math.ceil(minutesUntilSnapshotDue(monitor.snapshot_at, plan, now))
 
-      const frozen = getFrozenSnapshot(monitor, plan, search.id, now, force)
-      if (frozen && !discover && !force) {
-        const fetchedAt = monitor.snapshot_at
-          ? new Date(monitor.snapshot_at).getTime()
-          : Date.now()
-        return finalizeMonitorResponse(monitor, monitorId, frozen, {
-          q,
-          page,
-          condition,
-          fetchedAt,
-          fromCache: true,
-          frozen: true,
-          stale: false,
-          nextUpdateInMin: Math.ceil(minutesUntilSnapshotDue(monitor.snapshot_at, plan, now)),
-          mlPageFull: frozen.length >= ML_PAGE_STEP,
-        })
-      }
+      const outsideActiveHours =
+        !awaitingFirstScan && !isWithinActiveHours(plan, now) && catalog.length === 0
 
-      if (discover || force) {
-        const seenIds = await getMonitorSeenIds(monitorId)
-        if (seenIds.size > 0 || force) {
-          let catalog: Product[]
-          let hasMore: boolean
-          let page1: Product[]
-
-          if (discover) {
-            const discovered = await discoverNewProducts(monitorId, q, sort, condition)
-            catalog = discovered.catalog
-            hasMore = discovered.hasMore
-            page1 = catalog
-          } else {
-            const scraped = await scrapeMonitorCatalog(monitorId, q, sort, condition)
-            catalog = scraped.catalog
-            hasMore = scraped.hasMore
-            page1 = scraped.page1
-          }
-
-          let displayProducts = catalog
-          if (displayProducts.length > 0) {
-            if (page1.length > 0) await writeCache(search.id, page, page1)
-            await saveMonitorSnapshot(monitorId, displayProducts, search.id)
-          } else {
-            displayProducts = productFallback(monitor, cached, search.id)
-          }
-          return finalizeMonitorResponse(monitor, monitorId, displayProducts, {
-            q,
-            page,
-            condition,
-            fetchedAt: Date.now(),
-            fromCache: false,
-            frozen: false,
-            mlPageFull: hasMore,
-          })
-        }
-      }
-
-      const isFirstScrape = !monitor.snapshot_at
-
-      if (!force && !isFirstScrape && !isWithinActiveHours(plan, now)) {
-        const fallback = productFallback(monitor, cached, search.id)
-        if (fallback.length > 0) {
-          return finalizeMonitorResponse(monitor, monitorId, fallback, {
-            q,
-            page,
-            condition,
-            fetchedAt: monitor.snapshot_at
-              ? new Date(monitor.snapshot_at).getTime()
-              : cached
-                ? new Date(cached.scraped_at).getTime()
-                : Date.now(),
-            fromCache: true,
-            frozen: true,
-            outsideActiveHours: true,
-            mlPageFull: fallback.length >= ML_PAGE_STEP,
-          })
-        }
+      if (outsideActiveHours) {
         const nowBrt = getBrtHour(now)
         return Response.json(
           {
@@ -296,55 +184,18 @@ export async function GET(request: NextRequest) {
         )
       }
 
-      let products: Product[]
-      let fromCache = false
-      let fetchedAt = Date.now()
-      let mlPageFull = false
-
-      const scraped = await scrapeMonitorCatalog(monitorId, q, sort, condition)
-      products = scraped.catalog
-      mlPageFull = scraped.hasMore
-      if (scraped.page1.length > 0) {
-        await writeCache(search.id, page, scraped.page1)
-        await writeHeartbeat(
-          'ml_scrape',
-          'ok',
-          `Scrape OK: ${products.length} após filtro (${scraped.page1.length} pág. 1 ML)`,
-          { query: q },
-        )
-      }
-      fetchedAt = Date.now()
-
-      if (products.length === 0) {
-        const fallback = productFallback(monitor, cached, search.id)
-        if (fallback.length > 0) {
-          products = fallback
-          fromCache = true
-          mlPageFull = products.length >= ML_PAGE_STEP
-          fetchedAt = monitor.snapshot_at
-            ? new Date(monitor.snapshot_at).getTime()
-            : cached
-              ? new Date(cached.scraped_at).getTime()
-              : Date.now()
-        }
-      } else {
-        await saveMonitorSnapshot(monitorId, products, search.id)
-      }
-
-      const initialCatalog = await baselineFirstVisitIfNeeded(
-        monitorId,
-        products.map((p) => p.id),
-      )
-
-      return finalizeMonitorResponse(monitor, monitorId, products, {
+      return finalizeMonitorResponse(monitor, monitorId, catalog, {
         q,
         page,
         condition,
         fetchedAt,
-        fromCache,
-        frozen: false,
-        initialCatalog,
-        mlPageFull,
+        fromCache: true,
+        frozen: !stale && !awaitingFirstScan,
+        stale,
+        nextUpdateInMin,
+        outsideActiveHours: !awaitingFirstScan && !isWithinActiveHours(plan, now),
+        awaitingFirstScan,
+        mlPageFull: false,
       })
     }
 

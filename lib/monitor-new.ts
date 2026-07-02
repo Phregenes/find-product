@@ -3,34 +3,8 @@ import 'server-only'
 import type { Product } from '@/lib/product'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { toErrorMessage } from '@/lib/error-message'
-import type { Condition, SortBy } from '@/lib/product'
-import { scrapeSearchPages } from '@/lib/scraper'
 import { getMonitorSeenIds } from '@/lib/monitor-seen'
 import { buildMonitorProductList } from '@/lib/monitor-products'
-import { applyMonitorFilter } from '@/lib/monitor-filter-apply'
-
-/** ML pages scanned on automatic monitor refresh / discover (cron uses the same depth). */
-export const MONITOR_SCRAPE_MAX_PAGES = 8
-
-export async function scrapeMonitorCatalog(
-  monitorId: string,
-  q: string,
-  sort: SortBy,
-  condition: Condition,
-  maxPages = MONITOR_SCRAPE_MAX_PAGES,
-): Promise<{ catalog: Product[]; page1: Product[]; hasMore: boolean }> {
-  const admin = createAdminClient()
-  const { data: monitorRow } = await admin
-    .from('monitors')
-    .select('query, filter_mode, exclude_terms')
-    .eq('id', monitorId)
-    .maybeSingle()
-
-  const { page1, allPages, hasMore } = await scrapeSearchPages(q, sort, condition, maxPages, 1)
-  const filterSource = monitorRow ?? { query: q, filter_mode: 'default' as const, exclude_terms: [] }
-  const catalog = applyMonitorFilter(allPages, filterSource)
-  return { catalog, page1, hasMore }
-}
 
 export async function loadPendingNewProducts(monitorId: string): Promise<Product[]> {
   const admin = createAdminClient()
@@ -118,44 +92,22 @@ export async function prunePendingNewProducts(
   return kept
 }
 
-export async function discoverNewProducts(
-  monitorId: string,
-  q: string,
-  sort: SortBy,
-  condition: Condition,
-  maxPages = MONITOR_SCRAPE_MAX_PAGES,
-): Promise<{ pending: Product[]; catalog: Product[]; hasMore: boolean }> {
-  const seenIds = await getMonitorSeenIds(monitorId)
-  if (seenIds.size === 0) {
-    return { pending: [], catalog: [], hasMore: false }
-  }
-
-  const { catalog, hasMore } = await scrapeMonitorCatalog(monitorId, q, sort, condition, maxPages)
-  const scannedIds = new Set(catalog.map((p) => p.id))
-  const discovered = catalog.filter((p) => !seenIds.has(p.id))
-
-  await syncPendingNewProducts(monitorId, discovered)
-  const pending = await prunePendingNewProducts(monitorId, scannedIds)
-
-  return { pending, catalog, hasMore }
-}
-
 export async function mergeWithPendingNew(
   monitorId: string,
-  page1: Product[],
+  catalog: Product[],
 ): Promise<{ products: Product[]; newCount: number; pending: Product[] }> {
   const seenIds = await getMonitorSeenIds(monitorId)
   const pending = await loadPendingNewProducts(monitorId)
   if (seenIds.size === 0) {
-    return { products: page1, newCount: 0, pending: [] }
+    return { products: catalog, newCount: 0, pending: [] }
   }
 
   const pendingIds = new Set(pending.map((p) => p.id))
   const allPages = [...pending]
-  for (const p of page1) {
+  for (const p of catalog) {
     if (!pendingIds.has(p.id)) allPages.push(p)
   }
 
-  const built = buildMonitorProductList(page1, allPages, seenIds)
+  const built = buildMonitorProductList(catalog, allPages, seenIds)
   return { products: built.products, newCount: built.newCount, pending }
 }

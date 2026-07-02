@@ -2,7 +2,7 @@
  *
  * Edit PLANS below to change pricing, monitor limits, and scrape frequency.
  * - checkIntervalMinutes → how often the CRON scrapes (server, tab closed)
- * - clientRefreshMinutes → min interval when user has the app open
+ * - clientRefreshMinutes → min interval to re-read DB while the app is open
  * - activeHourStart/End → BRT window when scraping is allowed
  * - emailAlerts → cron sends email when new listings appear (Lojista+)
  *
