@@ -9,6 +9,29 @@ import { getMonitorSeenIds } from '@/lib/monitor-seen'
 import { buildMonitorProductList } from '@/lib/monitor-products'
 import { applyMonitorFilter } from '@/lib/monitor-filter-apply'
 
+/** ML pages scanned on automatic monitor refresh / discover (cron uses the same depth). */
+export const MONITOR_SCRAPE_MAX_PAGES = 8
+
+export async function scrapeMonitorCatalog(
+  monitorId: string,
+  q: string,
+  sort: SortBy,
+  condition: Condition,
+  maxPages = MONITOR_SCRAPE_MAX_PAGES,
+): Promise<{ catalog: Product[]; page1: Product[]; hasMore: boolean }> {
+  const admin = createAdminClient()
+  const { data: monitorRow } = await admin
+    .from('monitors')
+    .select('query, filter_mode, exclude_terms')
+    .eq('id', monitorId)
+    .maybeSingle()
+
+  const { page1, allPages, hasMore } = await scrapeSearchPages(q, sort, condition, maxPages, 1)
+  const filterSource = monitorRow ?? { query: q, filter_mode: 'default' as const, exclude_terms: [] }
+  const catalog = applyMonitorFilter(allPages, filterSource)
+  return { catalog, page1, hasMore }
+}
+
 export async function loadPendingNewProducts(monitorId: string): Promise<Product[]> {
   const admin = createAdminClient()
   const { data, error } = await admin
@@ -100,31 +123,21 @@ export async function discoverNewProducts(
   q: string,
   sort: SortBy,
   condition: Condition,
-  maxPages = 8,
-): Promise<{ pending: Product[]; page1: Product[]; hasMore: boolean }> {
-  const admin = createAdminClient()
-  const { data: monitorRow } = await admin
-    .from('monitors')
-    .select('query, filter_mode, exclude_terms')
-    .eq('id', monitorId)
-    .maybeSingle()
-
+  maxPages = MONITOR_SCRAPE_MAX_PAGES,
+): Promise<{ pending: Product[]; catalog: Product[]; hasMore: boolean }> {
   const seenIds = await getMonitorSeenIds(monitorId)
   if (seenIds.size === 0) {
-    return { pending: [], page1: [], hasMore: false }
+    return { pending: [], catalog: [], hasMore: false }
   }
 
-  const { page1, allPages, hasMore } = await scrapeSearchPages(q, sort, condition, maxPages, 1)
-  const filterSource = monitorRow ?? { query: q, filter_mode: 'default' as const, exclude_terms: [] }
-  const filteredPages = applyMonitorFilter(allPages, filterSource)
-  const page1Filtered = applyMonitorFilter(page1, filterSource)
-  const scannedIds = new Set(filteredPages.map((p) => p.id))
-  const discovered = filteredPages.filter((p) => !seenIds.has(p.id))
+  const { catalog, hasMore } = await scrapeMonitorCatalog(monitorId, q, sort, condition, maxPages)
+  const scannedIds = new Set(catalog.map((p) => p.id))
+  const discovered = catalog.filter((p) => !seenIds.has(p.id))
 
   await syncPendingNewProducts(monitorId, discovered)
   const pending = await prunePendingNewProducts(monitorId, scannedIds)
 
-  return { pending, page1: page1Filtered, hasMore }
+  return { pending, catalog, hasMore }
 }
 
 export async function mergeWithPendingNew(

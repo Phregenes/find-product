@@ -415,7 +415,11 @@ export default function MonitorApp() {
       monitorViewCacheRef.current.set(monitor.id, nextView)
       setViewState(nextView)
 
-      if (data.stale && incoming.length > 0) {
+      const filterActive = monitor.filter_mode !== 'default'
+      const mlMayHaveMore = data.mlPageFull ?? incoming.length >= ML_PAGE_STEP
+      const shouldDeepScan =
+        incoming.length > 0 && (data.stale || (filterActive && !mlMayHaveMore))
+      if (shouldDeepScan) {
         void discoverNew(monitor, generation)
       }
     } catch (err) {

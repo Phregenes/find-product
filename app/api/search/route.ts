@@ -22,12 +22,12 @@ import {
   loadMonitorSnapshot,
   productFallback,
   saveMonitorSnapshot,
-  sharedCacheStaleForPlan,
 } from '@/lib/monitor-snapshot'
 import { baselineFirstVisitIfNeeded, getMonitorSeenIds } from '@/lib/monitor-seen'
 import {
   discoverNewProducts,
   mergeWithPendingNew,
+  scrapeMonitorCatalog,
   syncPendingNewProducts,
 } from '@/lib/monitor-new'
 import { writeHeartbeat } from '@/lib/ops'
@@ -230,18 +230,31 @@ export async function GET(request: NextRequest) {
 
       if (discover || force) {
         const seenIds = await getMonitorSeenIds(monitorId)
-        if (seenIds.size > 0) {
-          const { page1, hasMore } = await discoverNewProducts(
-            monitorId, q, sort, condition, 8,
-          )
-          let page1Products = page1
-          if (page1Products.length > 0) {
-            await writeCache(search.id, page, page1Products)
-            await saveMonitorSnapshot(monitorId, page1Products, search.id)
+        if (seenIds.size > 0 || force) {
+          let catalog: Product[]
+          let hasMore: boolean
+          let page1: Product[]
+
+          if (discover) {
+            const discovered = await discoverNewProducts(monitorId, q, sort, condition)
+            catalog = discovered.catalog
+            hasMore = discovered.hasMore
+            page1 = catalog
           } else {
-            page1Products = productFallback(monitor, cached, search.id)
+            const scraped = await scrapeMonitorCatalog(monitorId, q, sort, condition)
+            catalog = scraped.catalog
+            hasMore = scraped.hasMore
+            page1 = scraped.page1
           }
-          return finalizeMonitorResponse(monitor, monitorId, page1Products, {
+
+          let displayProducts = catalog
+          if (displayProducts.length > 0) {
+            if (page1.length > 0) await writeCache(search.id, page, page1)
+            await saveMonitorSnapshot(monitorId, displayProducts, search.id)
+          } else {
+            displayProducts = productFallback(monitor, cached, search.id)
+          }
+          return finalizeMonitorResponse(monitor, monitorId, displayProducts, {
             q,
             page,
             condition,
@@ -288,21 +301,19 @@ export async function GET(request: NextRequest) {
       let fetchedAt = Date.now()
       let mlPageFull = false
 
-      if (cached && !sharedCacheStaleForPlan(cached.scraped_at, plan, now)) {
-        products = cached.products
-        fromCache = true
-        fetchedAt = new Date(cached.scraped_at).getTime()
-        mlPageFull = products.length >= ML_PAGE_STEP
-      } else {
-        const { products: scraped, scrapedCount } = await searchProducts(q, sort, page, condition, exclude)
-        products = scraped
-        mlPageFull = scrapedCount >= ML_PAGE_STEP
-        if (products.length > 0) {
-          await writeCache(search.id, page, products)
-          await writeHeartbeat('ml_scrape', 'ok', `Scrape OK: ${products.length} produtos`, { query: q })
-        }
-        fetchedAt = Date.now()
+      const scraped = await scrapeMonitorCatalog(monitorId, q, sort, condition)
+      products = scraped.catalog
+      mlPageFull = scraped.hasMore
+      if (scraped.page1.length > 0) {
+        await writeCache(search.id, page, scraped.page1)
+        await writeHeartbeat(
+          'ml_scrape',
+          'ok',
+          `Scrape OK: ${products.length} após filtro (${scraped.page1.length} pág. 1 ML)`,
+          { query: q },
+        )
       }
+      fetchedAt = Date.now()
 
       if (products.length === 0) {
         const fallback = productFallback(monitor, cached, search.id)
