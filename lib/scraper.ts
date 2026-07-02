@@ -151,11 +151,43 @@ async function countResultItems(browserPage: Page): Promise<number> {
   )
 }
 
+async function scrollResultsGrid(browserPage: Page): Promise<void> {
+  await browserPage.evaluate(async () => {
+    const step = Math.max(window.innerHeight, 600)
+    for (let y = 0; y < document.body.scrollHeight; y += step) {
+      window.scrollTo(0, y)
+      await new Promise((r) => setTimeout(r, 200))
+    }
+    window.scrollTo(0, 0)
+  })
+}
+
 async function scrapeProductsFromPage(browserPage: Page): Promise<Product[]> {
   return browserPage.evaluate((limit: number): Product[] => {
     const items = Array.from(
       document.querySelectorAll<HTMLElement>('li.ui-search-layout__item'),
     ).slice(0, limit)
+
+    function extractListingId(item: HTMLElement, link: string, title: string): string {
+      const hidden = item.querySelector<HTMLInputElement>('input[name="itemId"]')?.value?.trim()
+      if (hidden) return hidden.replace(/-/g, '')
+
+      const dataId =
+        item.getAttribute('data-item-id')
+        ?? item.querySelector<HTMLElement>('[data-item-id]')?.getAttribute('data-item-id')
+      if (dataId) return dataId.replace(/-/g, '')
+
+      const widMatch = link.match(/[?&#]wid=(MLB\d+)/i)
+      if (widMatch) return widMatch[1].replace(/-/g, '')
+
+      const mlbMatch = link.match(/\/(MLB-?\d+)/i) ?? link.match(/(MLB\d{8,})/i)
+      if (mlbMatch) return mlbMatch[1].replace(/-/g, '')
+
+      const mlbuMatch = link.match(/\/(MLBU\d+)/i)
+      if (mlbuMatch) return mlbuMatch[1]
+
+      return `${title.slice(0, 20)}-${Math.random().toString(36).slice(2)}`
+    }
 
     return items
       .map((item): Product | null => {
@@ -167,6 +199,7 @@ async function scrapeProductsFromPage(browserPage: Page): Promise<Product[]> {
 
         const title = titleEl.textContent?.trim() ?? ''
         const link = titleEl.href ?? ''
+        if (!title) return null
 
         const priceRoot =
           item.querySelector('.poly-price__current')
@@ -214,7 +247,15 @@ async function scrapeProductsFromPage(browserPage: Page): Promise<Product[]> {
           item.querySelector('.poly-component__subtitle')?.textContent?.trim()
           ?? item.querySelector('.ui-search-item__subtitle')?.textContent?.trim()
 
-        const priceStr = curFraction ? `R$ ${curFraction},${curCents ?? '00'}` : ''
+        let priceStr = curFraction ? `R$ ${curFraction},${curCents ?? '00'}` : ''
+        if (!priceStr) {
+          const fallback = (priceRoot.textContent ?? '').replace(/\s+/g, ' ').trim()
+          if (fallback && /R\$|consulte|grátis|gratis/i.test(fallback)) {
+            priceStr = fallback.slice(0, 48)
+          }
+        }
+        if (!priceStr) priceStr = 'Consulte'
+
         const priceNum = curFraction
           ? parseFloat(`${curFraction.replace(/\./g, '')}.${curCents?.replace(',', '') ?? '00'}`)
           : 0
@@ -225,12 +266,7 @@ async function scrapeProductsFromPage(browserPage: Page): Promise<Product[]> {
             )
           : undefined
 
-        const widMatch = link.match(/[?&#]wid=(MLB\d+)/)
-        const anyMatch = link.match(/\/(MLB-?\d+)/) ?? link.match(/(MLB\d{8,})/)
-        const rawId = widMatch?.[1] ?? anyMatch?.[1]
-        const id = rawId
-          ? rawId.replace(/-/g, '')
-          : `${title.slice(0, 20)}-${Math.random().toString(36).slice(2)}`
+        const id = extractListingId(item, link, title)
 
         return {
           id, title, price: priceStr, priceNumber: priceNum,
@@ -239,7 +275,7 @@ async function scrapeProductsFromPage(browserPage: Page): Promise<Product[]> {
           freeShipping, fullShipping, rating, seller, detectedAt: 0,
         }
       })
-      .filter((p): p is Product => p !== null && p.title !== '' && p.price !== '')
+      .filter((p): p is Product => p !== null && p.title !== '')
       .filter((p, idx, arr) => arr.findIndex((x) => x.id === p.id) === idx)
   }, ML_PAGE_STEP)
 }
@@ -264,6 +300,7 @@ async function loadSearchPage(browserPage: Page, url: string): Promise<Product[]
   }
 
   if (itemsFound === 0) return []
+  await scrollResultsGrid(browserPage)
   return scrapeProductsFromPage(browserPage)
 }
 
