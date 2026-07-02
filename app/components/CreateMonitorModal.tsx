@@ -111,7 +111,7 @@ export default function CreateMonitorModal({
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Ex: camera contax"
+                placeholder="Ex: tenis nike air max"
                 autoFocus
                 className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm outline-none transition focus:border-yellow-400 focus:ring-2 focus:ring-yellow-400/30 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
               />

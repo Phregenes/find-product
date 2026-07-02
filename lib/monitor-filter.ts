@@ -24,7 +24,7 @@ export const FILTER_MODE_OPTIONS: Array<{
     id: 'all_words',
     label: 'Todas as palavras',
     description: 'Cada termo da busca precisa aparecer no título.',
-    hint: 'Estilo eBay AND: "camera contax" exige "camera" e "contax" no título.',
+    hint: 'Estilo eBay AND: "tenis nike" exige "tenis" e "nike" no título.',
   },
   {
     id: 'phrase',
@@ -36,7 +36,7 @@ export const FILTER_MODE_OPTIONS: Array<{
     id: 'smart',
     label: 'Inteligente',
     description: 'Sinônimos + bloqueio de acessórios comuns.',
-    hint: '"camera contax" aceita "máquina fotográfica contax" e remove bolsas/cases.',
+    hint: '"tenis nike" aceita "sneaker nike" e remove cadarços/solas avulsas.',
   },
 ]
 
