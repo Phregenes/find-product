@@ -133,7 +133,7 @@ export function sharedCacheStaleForPlan(
   return elapsedMin >= plan.checkIntervalMinutes
 }
 
-/** Prefer monitor snapshot for this search, then shared search cache. */
+/** Prefer monitor snapshot for this search, then any snapshot, then shared cache. */
 export function productFallback(
   monitor: MonitorSnapshotRow,
   cached: { products: Product[] } | null | undefined,
@@ -141,6 +141,8 @@ export function productFallback(
 ): Product[] {
   const snapshot = snapshotForSearch(monitor, searchId)
   if (snapshot.length > 0) return snapshot
+  const anySnapshot = monitor.snapshot_products ?? []
+  if (anySnapshot.length > 0) return anySnapshot
   const fromCache = cached?.products ?? []
   if (fromCache.length > 0) return fromCache
   return []

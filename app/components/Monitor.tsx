@@ -242,6 +242,7 @@ export default function MonitorApp() {
   const viewStateRef = useRef<ViewState>(EMPTY_VIEW)
   const discoverAbortRef = useRef<AbortController | null>(null)
   const accountMenuRef = useRef<HTMLDivElement>(null)
+  const monitorViewCacheRef = useRef<Map<string, ViewState>>(new Map())
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [createModalQuery, setCreateModalQuery] = useState('')
@@ -287,23 +288,31 @@ export default function MonitorApp() {
       const data = await res.json()
       if (!res.ok || data.error || !isActiveFetch(monitor.id, generation)) return
 
-      const seen = await getSeenIds(monitor.id)
-      if (!isActiveFetch(monitor.id, generation)) return
-
       const incoming = (data.products as Product[]) ?? []
       if (incoming.length === 0) return
 
-      const newIds = productsToNewIds(incoming, seen)
+      let newIds: Set<string>
+      if (Array.isArray(data.newProductIds)) {
+        newIds = new Set(data.newProductIds as string[])
+      } else {
+        const seen = await getSeenIds(monitor.id)
+        if (!isActiveFetch(monitor.id, generation)) return
+        newIds = productsToNewIds(incoming, seen)
+      }
 
       setMonitors((prevMonitors) =>
         prevMonitors.map((m) => (m.id === monitor.id ? { ...m, new_count: newIds.size } : m)),
       )
-      setViewState((s) => ({
-        ...s,
-        products: incoming,
-        newIds,
-        hasMore: data.mlPageFull ?? incoming.length >= ML_PAGE_STEP,
-      }))
+      setViewState((s) => {
+        const next: ViewState = {
+          ...s,
+          products: incoming,
+          newIds,
+          hasMore: data.mlPageFull ?? incoming.length >= ML_PAGE_STEP,
+        }
+        monitorViewCacheRef.current.set(monitor.id, next)
+        return next
+      })
     } catch (err) {
       if ((err as Error).name === 'AbortError') return
     }
@@ -316,24 +325,35 @@ export default function MonitorApp() {
     abortInFlightFetches()
 
     const generation = ++fetchGenerationRef.current
-    const switchingMonitor = options?.clearProducts || monitor.id !== activeIdRef.current
+    const previousId = activeIdRef.current
+    const switchingMonitor = options?.clearProducts || monitor.id !== previousId
     activeIdRef.current = monitor.id
     setActiveId(monitor.id)
 
     const controller = new AbortController()
     fetchAbortRef.current = controller
 
+    if (previousId && previousId !== monitor.id) {
+      monitorViewCacheRef.current.set(previousId, viewStateRef.current)
+    }
+
+    const cachedView = !options?.force ? monitorViewCacheRef.current.get(monitor.id) : undefined
+
     if (switchingMonitor) {
-      setViewState({
-        loading: true,
-        loadingMore: false,
-        error: null,
-        products: [],
-        newIds: new Set(),
-        page: 1,
-        hasMore: true,
-        isInitialCatalog: false,
-      })
+      if (cachedView) {
+        setViewState({ ...cachedView, loading: true, error: null })
+      } else {
+        setViewState({
+          loading: true,
+          loadingMore: false,
+          error: null,
+          products: [],
+          newIds: new Set(),
+          page: 1,
+          hasMore: true,
+          isInitialCatalog: false,
+        })
+      }
     } else {
       setViewState((s) => ({ ...s, loading: true, error: null }))
     }
@@ -350,9 +370,6 @@ export default function MonitorApp() {
       if (!res.ok || data.error) throw new Error(data.error ?? 'Erro ao buscar')
 
       const initialCatalog = !!data.initialCatalog
-      const seen = await getSeenIds(monitor.id)
-      if (!isActiveFetch(monitor.id, generation)) return
-
       const incoming = (data.products as Product[]) ?? []
       const prev = viewStateRef.current
       const products = switchingMonitor
@@ -361,7 +378,17 @@ export default function MonitorApp() {
             switching: false,
             force: options?.force,
           })
-      const newIds = initialCatalog ? new Set<string>() : productsToNewIds(products, seen)
+
+      let newIds: Set<string>
+      if (initialCatalog) {
+        newIds = new Set<string>()
+      } else if (Array.isArray(data.newProductIds)) {
+        newIds = new Set(data.newProductIds as string[])
+      } else {
+        const seen = await getSeenIds(monitor.id)
+        if (!isActiveFetch(monitor.id, generation)) return
+        newIds = productsToNewIds(products, seen)
+      }
 
       if (initialCatalog) {
         setMonitors((prevMonitors) =>
@@ -373,8 +400,10 @@ export default function MonitorApp() {
         )
       }
 
-      setViewState({
-        loading: false, loadingMore: false, error: null,
+      const nextView: ViewState = {
+        loading: false,
+        loadingMore: false,
+        error: null,
         products,
         newIds,
         page: 1,
@@ -382,9 +411,11 @@ export default function MonitorApp() {
           ? (data.mlPageFull ?? incoming.length >= ML_PAGE_STEP)
           : prev.hasMore,
         isInitialCatalog: initialCatalog,
-      })
+      }
+      monitorViewCacheRef.current.set(monitor.id, nextView)
+      setViewState(nextView)
 
-      if (!initialCatalog && incoming.length > 0) {
+      if (data.stale && incoming.length > 0) {
         void discoverNew(monitor, generation)
       }
     } catch (err) {

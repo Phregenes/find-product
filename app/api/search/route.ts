@@ -13,6 +13,7 @@ import { getSessionPlan } from '@/lib/plans-server'
 import {
   formatActiveHours,
   getBrtHour,
+  isSnapshotDue,
   isWithinActiveHours,
   minutesUntilSnapshotDue,
 } from '@/lib/plans'
@@ -49,12 +50,18 @@ async function finalizeMonitorResponse(
   page1: Product[],
   jsonOpts: Parameters<typeof jsonProducts>[1],
 ) {
-  const merged = await mergeWithPendingNew(monitorId, page1)
-  const seenIds = await getMonitorSeenIds(monitorId)
+  const [merged, seenIds] = await Promise.all([
+    mergeWithPendingNew(monitorId, page1),
+    getMonitorSeenIds(monitorId),
+  ])
   const products = applyMonitorFilter(merged.products, monitor)
-  const newCount = products.filter((p) => !seenIds.has(p.id)).length
-  await updateMonitorNewCount(monitorId, newCount)
-  return jsonProducts(products, jsonOpts)
+  const newProducts = products.filter((p) => !seenIds.has(p.id))
+  await updateMonitorNewCount(monitorId, newProducts.length)
+  return jsonProducts(products, {
+    ...jsonOpts,
+    newCount: newProducts.length,
+    newProductIds: newProducts.map((p) => p.id),
+  })
 }
 
 function jsonProducts(
@@ -66,10 +73,13 @@ function jsonProducts(
     fetchedAt: number
     fromCache: boolean
     frozen?: boolean
+    stale?: boolean
     nextUpdateInMin?: number
     outsideActiveHours?: boolean
     initialCatalog?: boolean
     mlPageFull?: boolean
+    newCount?: number
+    newProductIds?: string[]
   },
 ) {
   return Response.json({
@@ -82,9 +92,12 @@ function jsonProducts(
     fetchedAt: opts.fetchedAt,
     fromCache: opts.fromCache,
     frozen: opts.frozen ?? false,
+    stale: opts.stale ?? false,
     nextUpdateInMin: opts.nextUpdateInMin,
     outsideActiveHours: opts.outsideActiveHours,
     initialCatalog: opts.initialCatalog ?? false,
+    newCount: opts.newCount,
+    newProductIds: opts.newProductIds,
   })
 }
 
@@ -162,14 +175,40 @@ export async function GET(request: NextRequest) {
 
     // Page 1 with monitor → per-plan frozen snapshot.
     if (page === 1 && exclude.length === 0 && monitorId) {
+      const now = new Date()
       const monitor = await loadMonitorSnapshot(monitorId, userId)
       if (!monitor) {
         return Response.json({ error: 'Monitor não encontrado' }, { status: 404 })
       }
 
-      const now = new Date()
       const search = await resolveSearch(q, sort, condition)
       const cached = await readCachePage(search.id, page)
+      const stale = isSnapshotDue(monitor.snapshot_at, plan, now)
+
+      // Tab switch: return snapshot/cache immediately — never block on Playwright scrape.
+      if (!force && !discover) {
+        const instant = productFallback(monitor, cached, search.id)
+        if (instant.length > 0) {
+          const fetchedAt = monitor.snapshot_at
+            ? new Date(monitor.snapshot_at).getTime()
+            : cached
+              ? new Date(cached.scraped_at).getTime()
+              : Date.now()
+          return finalizeMonitorResponse(monitor, monitorId, instant, {
+            q,
+            page,
+            condition,
+            fetchedAt,
+            fromCache: true,
+            frozen: !stale,
+            stale,
+            nextUpdateInMin: stale
+              ? 0
+              : Math.ceil(minutesUntilSnapshotDue(monitor.snapshot_at, plan, now)),
+            mlPageFull: instant.length >= ML_PAGE_STEP,
+          })
+        }
+      }
 
       const frozen = getFrozenSnapshot(monitor, plan, search.id, now, force)
       if (frozen && !discover && !force) {
@@ -183,6 +222,7 @@ export async function GET(request: NextRequest) {
           fetchedAt,
           fromCache: true,
           frozen: true,
+          stale: false,
           nextUpdateInMin: Math.ceil(minutesUntilSnapshotDue(monitor.snapshot_at, plan, now)),
           mlPageFull: frozen.length >= ML_PAGE_STEP,
         })
