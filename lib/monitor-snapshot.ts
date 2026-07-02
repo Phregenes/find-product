@@ -1,6 +1,8 @@
 import 'server-only'
 
 import type { Product } from '@/lib/product'
+import type { MonitorFilterMode } from '@/lib/monitor-filter'
+import { parseFilterMode } from '@/lib/monitor-filter'
 import type { PlanConfig } from '@/lib/plans'
 import { isSnapshotDue } from '@/lib/plans'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -15,6 +17,8 @@ export interface MonitorSnapshotRow {
   snapshot_at: string | null
   last_checked_at: string | null
   new_count: number
+  filter_mode: MonitorFilterMode
+  exclude_terms: string[]
 }
 
 interface SnapshotPayload {
@@ -45,7 +49,7 @@ export async function loadMonitorSnapshot(
   const admin = createAdminClient()
   const { data, error } = await admin
     .from('monitors')
-    .select('id, user_id, query, search_id, snapshot_products, snapshot_at, last_checked_at, new_count')
+    .select('id, user_id, query, search_id, snapshot_products, snapshot_at, last_checked_at, new_count, filter_mode, exclude_terms')
     .eq('id', monitorId)
     .eq('user_id', userId)
     .maybeSingle()
@@ -57,6 +61,8 @@ export async function loadMonitorSnapshot(
     ...data,
     snapshot_products: payload?.products ?? null,
     snapshot_search_id: payload?.searchId ?? null,
+    filter_mode: parseFilterMode(data.filter_mode),
+    exclude_terms: (data.exclude_terms as string[] | null) ?? [],
   } as MonitorSnapshotRow
 }
 

@@ -1,4 +1,5 @@
 import type { Condition, Product, SortBy } from './product'
+import type { MonitorFilterMode } from './monitor-filter'
 import { createClient } from './supabase/client'
 
 export interface SearchRow {
@@ -18,6 +19,8 @@ export interface MonitorRow {
   query: string
   last_checked_at: string | null
   new_count: number
+  filter_mode: MonitorFilterMode
+  exclude_terms: string[]
   snapshot_products?: Product[] | null
   snapshot_at?: string | null
   created_at: string
@@ -46,12 +49,21 @@ export async function listMonitors(): Promise<MonitorWithSearch[]> {
 /** Create a monitor (resolves/creates the shared search server-side). */
 export async function createMonitor(
   query: string,
-  condition: Condition = 'all',
+  options?: {
+    condition?: Condition
+    filterMode?: MonitorFilterMode
+    excludeTerms?: string[]
+  },
 ): Promise<MonitorWithSearch> {
   const res = await fetch('/api/monitors', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ query, condition }),
+    body: JSON.stringify({
+      query,
+      condition: options?.condition ?? 'all',
+      filter_mode: options?.filterMode ?? 'default',
+      exclude_terms: options?.excludeTerms ?? [],
+    }),
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error ?? 'Erro ao criar monitor')

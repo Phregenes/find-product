@@ -7,6 +7,7 @@ import type { Condition, SortBy } from '@/lib/product'
 import { scrapeSearchPages } from '@/lib/scraper'
 import { getMonitorSeenIds } from '@/lib/monitor-seen'
 import { buildMonitorProductList } from '@/lib/monitor-products'
+import { applyMonitorFilter } from '@/lib/monitor-filter-apply'
 
 export async function loadPendingNewProducts(monitorId: string): Promise<Product[]> {
   const admin = createAdminClient()
@@ -101,19 +102,29 @@ export async function discoverNewProducts(
   condition: Condition,
   maxPages = 8,
 ): Promise<{ pending: Product[]; page1: Product[]; hasMore: boolean }> {
+  const admin = createAdminClient()
+  const { data: monitorRow } = await admin
+    .from('monitors')
+    .select('query, filter_mode, exclude_terms')
+    .eq('id', monitorId)
+    .maybeSingle()
+
   const seenIds = await getMonitorSeenIds(monitorId)
   if (seenIds.size === 0) {
     return { pending: [], page1: [], hasMore: false }
   }
 
   const { page1, allPages, hasMore } = await scrapeSearchPages(q, sort, condition, maxPages, 1)
-  const scannedIds = new Set(allPages.map((p) => p.id))
-  const discovered = allPages.filter((p) => !seenIds.has(p.id))
+  const filterSource = monitorRow ?? { query: q, filter_mode: 'default' as const, exclude_terms: [] }
+  const filteredPages = applyMonitorFilter(allPages, filterSource)
+  const page1Filtered = applyMonitorFilter(page1, filterSource)
+  const scannedIds = new Set(filteredPages.map((p) => p.id))
+  const discovered = filteredPages.filter((p) => !seenIds.has(p.id))
 
   await syncPendingNewProducts(monitorId, discovered)
   const pending = await prunePendingNewProducts(monitorId, scannedIds)
 
-  return { pending, page1, hasMore }
+  return { pending, page1: page1Filtered, hasMore }
 }
 
 export async function mergeWithPendingNew(

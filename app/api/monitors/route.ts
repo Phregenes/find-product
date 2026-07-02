@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import type { Condition, SortBy } from '@/lib/product'
+import { parseFilterMode } from '@/lib/monitor-filter'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveSearch } from '@/lib/searches'
@@ -36,6 +37,10 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}))
   const query = (body.query as string | undefined)?.trim()
   const condition = (body.condition as Condition | undefined) ?? 'all'
+  const filterMode = parseFilterMode(body.filter_mode)
+  const excludeTerms = Array.isArray(body.exclude_terms)
+    ? (body.exclude_terms as string[]).map((t) => String(t).trim()).filter(Boolean)
+    : []
   if (!query) return Response.json({ error: 'Query obrigatória' }, { status: 400 })
 
   try {
@@ -69,7 +74,13 @@ export async function POST(request: NextRequest) {
     const { data, error } = await admin
       .from('monitors')
       .upsert(
-        { user_id: userId, search_id: search.id, query },
+        {
+          user_id: userId,
+          search_id: search.id,
+          query,
+          filter_mode: filterMode,
+          exclude_terms: excludeTerms,
+        },
         { onConflict: 'user_id,search_id' },
       )
       .select('*, searches(*)')

@@ -12,6 +12,8 @@ import {
   getSeenIds,
   addSeenIds,
 } from '@/lib/monitors'
+import CreateMonitorModal, { type CreateMonitorOptions } from '@/app/components/CreateMonitorModal'
+import { filterModeLabel } from '@/lib/monitor-filter'
 import { createClient } from '@/lib/supabase/client'
 import type { Product, Condition } from '@/lib/product'
 import type { PlanConfig } from '@/lib/plans'
@@ -232,10 +234,15 @@ export default function MonitorApp() {
   const now = useNow()
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const activeIdRef = useRef<string | null>(null)
+  const fetchGenerationRef = useRef(0)
+  const fetchAbortRef = useRef<AbortController | null>(null)
+  const loadMoreAbortRef = useRef<AbortController | null>(null)
   const viewStateRef = useRef<ViewState>(EMPTY_VIEW)
   const discoverAbortRef = useRef<AbortController | null>(null)
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+  const [createModalOpen, setCreateModalOpen] = useState(false)
+  const [createModalQuery, setCreateModalQuery] = useState('')
 
   const activeMonitor = activeId ? monitors.find((m) => m.id === activeId) ?? null : null
 
@@ -243,9 +250,19 @@ export default function MonitorApp() {
     viewStateRef.current = viewState
   }, [viewState])
 
+  function isActiveFetch(monitorId: string, generation: number): boolean {
+    return activeIdRef.current === monitorId && fetchGenerationRef.current === generation
+  }
+
+  function abortInFlightFetches(): void {
+    fetchAbortRef.current?.abort()
+    discoverAbortRef.current?.abort()
+    loadMoreAbortRef.current?.abort()
+  }
+
   // ── Fetch products for a monitor (page 1) ─────────────────────────────────
-  const discoverNew = useCallback(async (monitor: MonitorWithSearch) => {
-    if (activeIdRef.current !== monitor.id) return
+  const discoverNew = useCallback(async (monitor: MonitorWithSearch, generation: number) => {
+    if (!isActiveFetch(monitor.id, generation)) return
 
     discoverAbortRef.current?.abort()
     const controller = new AbortController()
@@ -258,24 +275,24 @@ export default function MonitorApp() {
         { signal: controller.signal },
       )
       const data = await res.json()
-      if (!res.ok || data.error || activeIdRef.current !== monitor.id) return
+      if (!res.ok || data.error || !isActiveFetch(monitor.id, generation)) return
 
       const seen = await getSeenIds(monitor.id)
+      if (!isActiveFetch(monitor.id, generation)) return
+
       const incoming = (data.products as Product[]) ?? []
-      const prev = viewStateRef.current
-      const products = resolveRefreshProducts(prev.products, incoming, { switching: false })
-      const newIds = productsToNewIds(products, seen)
+      if (incoming.length === 0) return
+
+      const newIds = productsToNewIds(incoming, seen)
 
       setMonitors((prevMonitors) =>
         prevMonitors.map((m) => (m.id === monitor.id ? { ...m, new_count: newIds.size } : m)),
       )
       setViewState((s) => ({
         ...s,
-        products,
+        products: incoming,
         newIds,
-        hasMore: incoming.length > 0
-          ? (data.mlPageFull ?? incoming.length >= ML_PAGE_STEP)
-          : s.hasMore,
+        hasMore: data.mlPageFull ?? incoming.length >= ML_PAGE_STEP,
       }))
     } catch (err) {
       if ((err as Error).name === 'AbortError') return
@@ -286,36 +303,54 @@ export default function MonitorApp() {
     monitor: MonitorWithSearch,
     options?: { force?: boolean; clearProducts?: boolean },
   ) => {
+    abortInFlightFetches()
+
+    const generation = ++fetchGenerationRef.current
     const switchingMonitor = options?.clearProducts || monitor.id !== activeIdRef.current
     activeIdRef.current = monitor.id
     setActiveId(monitor.id)
-    setViewState((s) => ({
-      ...s,
-      loading: true,
-      error: null,
-      products: switchingMonitor ? [] : s.products,
-      newIds: switchingMonitor ? new Set<string>() : s.newIds,
-      page: 1,
-      hasMore: true,
-      isInitialCatalog: switchingMonitor ? false : s.isInitialCatalog,
-    }))
+
+    const controller = new AbortController()
+    fetchAbortRef.current = controller
+
+    if (switchingMonitor) {
+      setViewState({
+        loading: true,
+        loadingMore: false,
+        error: null,
+        products: [],
+        newIds: new Set(),
+        page: 1,
+        hasMore: true,
+        isInitialCatalog: false,
+      })
+    } else {
+      setViewState((s) => ({ ...s, loading: true, error: null }))
+    }
+
     const condition = monitor.searches?.condition ?? 'all'
     const forceParam = options?.force ? '&force=1' : ''
     try {
       const res = await fetch(
         `/api/search?q=${encodeURIComponent(monitor.query)}&sort=recent&page=1&condition=${condition}&monitorId=${encodeURIComponent(monitor.id)}${forceParam}`,
+        { signal: controller.signal },
       )
       const data = await res.json()
+      if (!isActiveFetch(monitor.id, generation)) return
       if (!res.ok || data.error) throw new Error(data.error ?? 'Erro ao buscar')
 
       const initialCatalog = !!data.initialCatalog
       const seen = await getSeenIds(monitor.id)
+      if (!isActiveFetch(monitor.id, generation)) return
+
       const incoming = (data.products as Product[]) ?? []
       const prev = viewStateRef.current
-      const products = resolveRefreshProducts(prev.products, incoming, {
-        switching: switchingMonitor,
-        force: options?.force,
-      })
+      const products = switchingMonitor
+        ? incoming
+        : resolveRefreshProducts(prev.products, incoming, {
+            switching: false,
+            force: options?.force,
+          })
       const newIds = initialCatalog ? new Set<string>() : productsToNewIds(products, seen)
 
       if (initialCatalog) {
@@ -340,25 +375,34 @@ export default function MonitorApp() {
       })
 
       if (!initialCatalog && incoming.length > 0) {
-        void discoverNew(monitor)
+        void discoverNew(monitor, generation)
       }
     } catch (err) {
-      setViewState((s) => ({
+      if ((err as Error).name === 'AbortError') return
+      if (!isActiveFetch(monitor.id, generation)) return
+      setViewState({
         loading: false, loadingMore: false,
         error: (err as Error).message,
-        products: switchingMonitor ? [] : s.products,
-        newIds: switchingMonitor ? new Set<string>() : s.newIds,
+        products: [],
+        newIds: new Set(),
         page: 1,
-        hasMore: switchingMonitor ? false : s.hasMore,
-        isInitialCatalog: switchingMonitor ? false : s.isInitialCatalog,
-      }))
+        hasMore: false,
+        isInitialCatalog: false,
+      })
     }
   }, [discoverNew])
 
   // ── Load more ──────────────────────────────────────────────────────────────
   const loadMore = useCallback(async (monitor: MonitorWithSearch, nextPage: number) => {
+    if (activeIdRef.current !== monitor.id) return
+
+    loadMoreAbortRef.current?.abort()
+    const controller = new AbortController()
+    loadMoreAbortRef.current = controller
+
     setViewState((s) => ({ ...s, loadingMore: true }))
     const condition = monitor.searches?.condition ?? 'all'
+    const monitorId = monitor.id
     try {
       let current: Product[] = []
       await new Promise<void>((resolve) => {
@@ -367,17 +411,20 @@ export default function MonitorApp() {
       const exclude = current.map((p) => p.id).join(',')
       const res = await fetch(
         `/api/search?q=${encodeURIComponent(monitor.query)}&sort=recent&page=${nextPage}&condition=${condition}&exclude=${exclude}&minNew=20&monitorId=${encodeURIComponent(monitor.id)}`,
+        { signal: controller.signal },
       )
       const data = await res.json()
+      if (activeIdRef.current !== monitorId) return
       if (!res.ok || data.error) throw new Error(data.error)
       const incoming = data.products as Product[]
-      const seen = await getSeenIds(monitor.id)
+      const seen = await getSeenIds(monitorId)
+      if (activeIdRef.current !== monitorId) return
       setViewState((s) => {
         const merged = mergeProducts(s.products, incoming)
         const newIds = productsToNewIds(merged, seen)
-        if (activeIdRef.current === monitor.id) {
+        if (activeIdRef.current === monitorId) {
           setMonitors((prev) =>
-            prev.map((m) => (m.id === monitor.id ? { ...m, new_count: newIds.size } : m)),
+            prev.map((m) => (m.id === monitorId ? { ...m, new_count: newIds.size } : m)),
           )
         }
         return {
@@ -389,7 +436,9 @@ export default function MonitorApp() {
           hasMore: data.mlPageFull === true,
         }
       })
-    } catch {
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return
+      if (activeIdRef.current !== monitorId) return
       setViewState((s) => ({ ...s, loadingMore: false, hasMore: false }))
     }
   }, [])
@@ -466,13 +515,20 @@ export default function MonitorApp() {
   }, [intervalMin, activeId, refreshMonitors, fetchProducts])
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
-  async function handleAddMonitor(e: React.FormEvent) {
-    e.preventDefault()
-    const q = searchInput.trim()
-    if (!q) return
-    setSearchInput('')
+  function openCreateModal(prefill?: string) {
+    setCreateModalQuery(prefill ?? searchInput.trim())
+    setCreateModalOpen(true)
+  }
+
+  async function handleCreateMonitor(options: CreateMonitorOptions) {
     try {
-      const monitor = await createMonitor(q)
+      const monitor = await createMonitor(options.query, {
+        condition: options.condition,
+        filterMode: options.filterMode,
+        excludeTerms: options.excludeTerms,
+      })
+      setCreateModalOpen(false)
+      setSearchInput('')
       const list = await refreshMonitors()
       const created = list.find((m) => m.id === monitor.id) ?? monitor
       setActiveId(created.id)
@@ -481,6 +537,13 @@ export default function MonitorApp() {
     } catch (err) {
       setViewState((s) => ({ ...s, error: (err as Error).message }))
     }
+  }
+
+  function handleAddMonitor(e: React.FormEvent) {
+    e.preventDefault()
+    const q = searchInput.trim()
+    if (!q || atMonitorLimit) return
+    openCreateModal(q)
   }
 
   async function handleMarkSeen() {
@@ -551,8 +614,9 @@ export default function MonitorApp() {
               className="min-w-0 flex-1 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm outline-none transition focus:border-yellow-400 focus:bg-white focus:ring-2 focus:ring-yellow-400/30 sm:px-4 sm:py-2.5 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder:text-zinc-500 dark:focus:bg-zinc-900"
             />
             <button
-              type="submit"
-              disabled={!searchInput.trim() || atMonitorLimit}
+              type="button"
+              onClick={() => openCreateModal()}
+              disabled={atMonitorLimit}
               title={atMonitorLimit ? `Limite do plano ${planUsage?.plan.name}: ${planUsage?.monitorLimit} monitores` : undefined}
               className="flex shrink-0 items-center gap-1.5 rounded-xl bg-yellow-400 px-3 py-2 text-sm font-semibold text-zinc-900 transition hover:bg-yellow-300 active:scale-95 disabled:opacity-40 sm:px-4 sm:py-2.5"
             >
@@ -645,10 +709,18 @@ export default function MonitorApp() {
               >
                 <button
                   type="button"
-                  onClick={() => { setActiveId(entry.id); fetchProducts(entry) }}
+                  onClick={() => fetchProducts(entry)}
                   className="flex items-center gap-1.5 whitespace-nowrap"
                 >
                   <span className="capitalize">{entry.query}</span>
+                  {entry.filter_mode && entry.filter_mode !== 'default' && (
+                    <span
+                      className="rounded bg-zinc-200/80 px-1 py-px text-[9px] font-bold uppercase tracking-wide text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300"
+                      title={`Filtro: ${filterModeLabel(entry.filter_mode)}`}
+                    >
+                      {filterModeLabel(entry.filter_mode)}
+                    </span>
+                  )}
                   {entry.new_count > 0 && (
                     <span className="flex h-4 w-4 items-center justify-center rounded-full bg-green-500 text-[9px] font-bold text-white">
                       {entry.new_count}
@@ -725,6 +797,14 @@ export default function MonitorApp() {
                 <span className="truncate text-sm font-semibold capitalize text-zinc-900 dark:text-white">
                   {activeMonitor.query}
                 </span>
+                {activeMonitor.filter_mode && activeMonitor.filter_mode !== 'default' && (
+                  <span
+                    className="shrink-0 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"
+                    title={`Filtro de relevância: ${filterModeLabel(activeMonitor.filter_mode)}`}
+                  >
+                    {filterModeLabel(activeMonitor.filter_mode)}
+                  </span>
+                )}
                 {viewState.loading && (
                   <svg className="h-3.5 w-3.5 shrink-0 animate-spin text-yellow-500" viewBox="0 0 24 24" fill="none">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -886,6 +966,16 @@ export default function MonitorApp() {
           </div>
         )}
       </main>
+
+      <CreateMonitorModal
+        open={createModalOpen}
+        initialQuery={createModalQuery}
+        atLimit={atMonitorLimit}
+        planName={planUsage?.plan.name}
+        monitorLimit={planUsage?.monitorLimit}
+        onClose={() => setCreateModalOpen(false)}
+        onSubmit={handleCreateMonitor}
+      />
     </div>
   )
 }

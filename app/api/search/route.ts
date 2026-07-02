@@ -31,13 +31,29 @@ import {
 import { writeHeartbeat } from '@/lib/ops'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { toErrorMessage } from '@/lib/error-message'
+import { applyMonitorFilter } from '@/lib/monitor-filter-apply'
 import type { Product } from '@/lib/product'
+import type { MonitorSnapshotRow } from '@/lib/monitor-snapshot'
 
 export const dynamic = 'force-dynamic'
 
 async function updateMonitorNewCount(monitorId: string, newCount: number): Promise<void> {
   const admin = createAdminClient()
   await admin.from('monitors').update({ new_count: newCount }).eq('id', monitorId)
+}
+
+async function finalizeMonitorResponse(
+  monitor: MonitorSnapshotRow,
+  monitorId: string,
+  page1: Product[],
+  jsonOpts: Parameters<typeof jsonProducts>[1],
+) {
+  const merged = await mergeWithPendingNew(monitorId, page1)
+  const seenIds = await getMonitorSeenIds(monitorId)
+  const products = applyMonitorFilter(merged.products, monitor)
+  const newCount = products.filter((p) => !seenIds.has(p.id)).length
+  await updateMonitorNewCount(monitorId, newCount)
+  return jsonProducts(products, jsonOpts)
 }
 
 function jsonProducts(
@@ -99,11 +115,30 @@ export async function GET(request: NextRequest) {
         q, sort, page, condition, exclude, minNew,
       )
       if (monitorId && products.length > 0) {
-        const seenIds = await getMonitorSeenIds(monitorId)
-        const unseen = products.filter((p) => !seenIds.has(p.id))
-        if (unseen.length > 0) {
-          const pending = await syncPendingNewProducts(monitorId, unseen)
-          await updateMonitorNewCount(monitorId, pending.length)
+        const admin = createAdminClient()
+        const { data: mon } = await admin
+          .from('monitors')
+          .select('query, filter_mode, exclude_terms')
+          .eq('id', monitorId)
+          .maybeSingle()
+        if (mon) {
+          const seenIds = await getMonitorSeenIds(monitorId)
+          const filtered = applyMonitorFilter(products, mon)
+          const unseen = filtered.filter((p) => !seenIds.has(p.id))
+          if (unseen.length > 0) {
+            const pending = await syncPendingNewProducts(monitorId, unseen)
+            await updateMonitorNewCount(monitorId, pending.length)
+          }
+          return Response.json({
+            products: filtered,
+            query: q,
+            page: lastPage,
+            condition,
+            total: filtered.length,
+            mlPageFull: hasMore,
+            fetchedAt: Date.now(),
+            fromCache: false,
+          })
         }
       }
       return Response.json({
@@ -140,9 +175,7 @@ export async function GET(request: NextRequest) {
         const fetchedAt = monitor.snapshot_at
           ? new Date(monitor.snapshot_at).getTime()
           : Date.now()
-        const merged = await mergeWithPendingNew(monitorId, frozen)
-        await updateMonitorNewCount(monitorId, merged.newCount)
-        return jsonProducts(merged.products, {
+        return finalizeMonitorResponse(monitor, monitorId, frozen, {
           q,
           page,
           condition,
@@ -167,9 +200,7 @@ export async function GET(request: NextRequest) {
           } else {
             page1Products = productFallback(monitor, cached, search.id)
           }
-          const merged = await mergeWithPendingNew(monitorId, page1Products)
-          await updateMonitorNewCount(monitorId, merged.newCount)
-          return jsonProducts(merged.products, {
+          return finalizeMonitorResponse(monitor, monitorId, page1Products, {
             q,
             page,
             condition,
@@ -186,9 +217,7 @@ export async function GET(request: NextRequest) {
       if (!force && !isFirstScrape && !isWithinActiveHours(plan, now)) {
         const fallback = productFallback(monitor, cached, search.id)
         if (fallback.length > 0) {
-          const merged = await mergeWithPendingNew(monitorId, fallback)
-          await updateMonitorNewCount(monitorId, merged.newCount)
-          return jsonProducts(merged.products, {
+          return finalizeMonitorResponse(monitor, monitorId, fallback, {
             q,
             page,
             condition,
@@ -255,13 +284,7 @@ export async function GET(request: NextRequest) {
         products.map((p) => p.id),
       )
 
-      const merged = await mergeWithPendingNew(monitorId, products)
-      products = merged.products
-      if (!initialCatalog) {
-        await updateMonitorNewCount(monitorId, merged.newCount)
-      }
-
-      return jsonProducts(products, {
+      return finalizeMonitorResponse(monitor, monitorId, products, {
         q,
         page,
         condition,

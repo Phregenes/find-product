@@ -10,6 +10,8 @@ import {
   prunePendingNewProducts,
   syncPendingNewProducts,
 } from '@/lib/monitor-new'
+import { applyMonitorFilter } from '@/lib/monitor-filter-apply'
+import type { MonitorFilterMode } from '@/lib/monitor-filter'
 import {
   filterNotYetNotified,
   hasItemsNotYetNotified,
@@ -32,6 +34,8 @@ interface MonitorRow {
   query: string
   snapshot_at: string | null
   last_notified_item_ids: string[] | null
+  filter_mode: MonitorFilterMode
+  exclude_terms: string[] | null
 }
 
 /** Update snapshots, counts and emails — only for monitors due on their plan interval. */
@@ -46,7 +50,7 @@ export async function processMonitorAlerts(
 
   const { data: monitors, error: mErr } = await admin
     .from('monitors')
-    .select('id, user_id, query, snapshot_at, last_notified_item_ids')
+    .select('id, user_id, query, snapshot_at, last_notified_item_ids, filter_mode, exclude_terms')
     .eq('search_id', searchId)
   if (mErr) throw mErr
   if (!monitors?.length) return results
@@ -69,7 +73,6 @@ export async function processMonitorAlerts(
     ]),
   )
 
-  const productIds = allProducts.map((p) => p.id)
 
   for (const monitor of monitors as MonitorRow[]) {
     const monitorId = monitor.id
@@ -98,18 +101,20 @@ export async function processMonitorAlerts(
     if (sErr) throw sErr
 
     const seen = new Set((seenRows ?? []).map((r) => r.product_id as string))
-    const discovered = allProducts.filter((p) => !seen.has(p.id))
+    const monitorProducts = applyMonitorFilter(allProducts, monitor)
+    const page1Filtered = applyMonitorFilter(page1Products, monitor)
+    const discovered = monitorProducts.filter((p) => !seen.has(p.id))
 
-    await saveMonitorSnapshot(monitorId, page1Products, searchId)
+    await saveMonitorSnapshot(monitorId, page1Filtered, searchId)
 
-    if (seen.size === 0 && allProducts.length > 0) {
-      await baselineMonitorSeen(monitorId, productIds)
+    if (seen.size === 0 && monitorProducts.length > 0) {
+      await baselineMonitorSeen(monitorId, monitorProducts.map((p) => p.id))
       await admin.from('monitors').update({ new_count: 0 }).eq('id', monitorId)
       results.push({ monitorId, query, newCount: 0, emailed: false, baselined: true })
       continue
     }
 
-    const scannedIds = new Set(allProducts.map((p) => p.id))
+    const scannedIds = new Set(monitorProducts.map((p) => p.id))
     await syncPendingNewProducts(monitorId, discovered)
     const pending = await prunePendingNewProducts(monitorId, scannedIds)
 
