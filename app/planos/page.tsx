@@ -7,7 +7,7 @@ import { SITE_DESCRIPTION, SITE_NAME } from '@/lib/site'
 
 export const metadata = {
   title: 'Planos e preços',
-  description: `Compare os planos do ${SITE_NAME}. Comece grátis com 1 monitor ou escolha Garimpo, Lojista ou Pro para mais cobertura no Mercado Livre.`,
+  description: `Compare os planos do ${SITE_NAME}. Mercado Livre no grátis; OLX, filtros avançados e e-mail a partir do Lojista.`,
   openGraph: {
     title: `Planos e preços | ${SITE_NAME}`,
     description: SITE_DESCRIPTION,
@@ -25,8 +25,8 @@ export default function PlanosPage() {
             Escolha seu plano
           </h1>
           <p className="mt-4 text-zinc-600 dark:text-zinc-400">
-            Comece grátis com 1 monitor. Faça upgrade quando precisar de mais cobertura
-            e atualizações mais frequentes.
+            Comece grátis no Mercado Livre. Upgrade para mais monitores, filtros na prática,
+            varredura em várias páginas, OLX e alertas por e-mail.
           </p>
         </div>
 
@@ -35,9 +35,24 @@ export default function PlanosPage() {
             <PlanCard
               key={plan.id}
               plan={plan}
-              highlighted={plan.id === 'garimpo'}
+              highlighted={plan.id === 'lojista'}
             />
           ))}
+        </div>
+
+        <div className="mx-auto mt-10 max-w-2xl rounded-2xl border border-zinc-200 bg-white p-5 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+          <p className="font-medium text-zinc-900 dark:text-white">O que todos os planos incluem</p>
+          <ul className="mt-3 list-inside list-disc space-y-1.5 text-zinc-500 dark:text-zinc-400">
+            <li>Filtros de relevância do título (padrão, todas as palavras, frase exata, inteligente)</li>
+            <li>Condição novo, usado ou todos — definida na criação do monitor</li>
+            <li>Palavras para ignorar na busca</li>
+            <li>Até N+1 criações de monitor por dia (evita abuso de delete/recreate)</li>
+          </ul>
+          <p className="mt-4 font-medium text-zinc-900 dark:text-white">Exclusivo Lojista e Pro</p>
+          <ul className="mt-3 list-inside list-disc space-y-1.5 text-zinc-500 dark:text-zinc-400">
+            <li>Monitoramento na OLX (só OLX ou ML + OLX na mesma busca)</li>
+            <li>Alertas por e-mail quando surgirem novidades</li>
+          </ul>
         </div>
 
         <p className="mx-auto mt-10 max-w-xl text-center text-xs text-zinc-400">

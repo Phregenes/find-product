@@ -7,7 +7,7 @@ import {
   type MonitorFilterMode,
   parseExcludeTermsInput,
 } from '@/lib/monitor-filter'
-import { MARKETPLACE_MODE_OPTIONS } from '@/lib/marketplace'
+import { MARKETPLACE_MODE_OPTIONS, normalizeMarketplaceModeForPlan, marketplaceModeRequiresOlx } from '@/lib/marketplace'
 
 export interface CreateMonitorOptions {
   query: string
@@ -25,6 +25,7 @@ interface CreateMonitorModalProps {
   planName?: string
   monitorLimit?: number
   planEmailAlerts?: boolean
+  planOlxAccess?: boolean
   onClose: () => void
   onSubmit: (options: CreateMonitorOptions) => void | Promise<void>
 }
@@ -36,6 +37,7 @@ export default function CreateMonitorModal({
   planName,
   monitorLimit,
   planEmailAlerts = false,
+  planOlxAccess = false,
   onClose,
   onSubmit,
 }: CreateMonitorModalProps) {
@@ -52,12 +54,12 @@ export default function CreateMonitorModal({
       setQuery(initialQuery)
       setCondition('all')
       setFilterMode('default')
-      setMarketplaceMode('both')
+      setMarketplaceMode(planOlxAccess ? 'both' : 'ml')
       setExcludeInput('')
       setEmailAlerts(false)
       setSubmitting(false)
     }
-  }, [open, initialQuery])
+  }, [open, initialQuery, planOlxAccess])
 
   useEffect(() => {
     if (!open) return
@@ -82,7 +84,7 @@ export default function CreateMonitorModal({
         filterMode,
         excludeTerms: parseExcludeTermsInput(excludeInput),
         emailAlerts: planEmailAlerts && emailAlerts,
-        marketplaceMode,
+        marketplaceMode: normalizeMarketplaceModeForPlan(marketplaceMode, planOlxAccess),
       })
     } finally {
       setSubmitting(false)
@@ -142,14 +144,26 @@ export default function CreateMonitorModal({
               <legend className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
                 Onde buscar
               </legend>
+              {!planOlxAccess && (
+                <p className="text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+                  OLX e ML + OLX no plano <strong className="text-zinc-700 dark:text-zinc-300">Lojista</strong> ou superior.{' '}
+                  <a href="/planos" className="font-medium text-yellow-600 hover:underline dark:text-yellow-400">
+                    Ver planos
+                  </a>
+                </p>
+              )}
               <div className="flex flex-col gap-2">
-                {MARKETPLACE_MODE_OPTIONS.map((option) => (
+                {MARKETPLACE_MODE_OPTIONS.map((option) => {
+                  const locked = !planOlxAccess && marketplaceModeRequiresOlx(option.id)
+                  return (
                   <label
                     key={option.id}
-                    className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${
-                      marketplaceMode === option.id
-                        ? 'border-orange-400 bg-orange-50/50 ring-1 ring-orange-400/30 dark:border-orange-500/50 dark:bg-orange-950/20'
-                        : 'border-zinc-200 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800/50'
+                    className={`flex items-start gap-3 rounded-xl border p-3 transition ${
+                      locked
+                        ? 'cursor-not-allowed border-zinc-200 opacity-60 dark:border-zinc-700'
+                        : marketplaceMode === option.id
+                          ? 'cursor-pointer border-orange-400 bg-orange-50/50 ring-1 ring-orange-400/30 dark:border-orange-500/50 dark:bg-orange-950/20'
+                          : 'cursor-pointer border-zinc-200 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800/50'
                     }`}
                   >
                     <input
@@ -157,19 +171,26 @@ export default function CreateMonitorModal({
                       name="marketplaceMode"
                       value={option.id}
                       checked={marketplaceMode === option.id}
-                      onChange={() => setMarketplaceMode(option.id)}
-                      className="mt-0.5 h-4 w-4 border-zinc-300 text-orange-500 focus:ring-orange-400"
+                      disabled={locked}
+                      onChange={() => !locked && setMarketplaceMode(option.id)}
+                      className="mt-0.5 h-4 w-4 border-zinc-300 text-orange-500 focus:ring-orange-400 disabled:opacity-50"
                     />
                     <span className="flex flex-col gap-0.5">
                       <span className="text-sm font-medium text-zinc-900 dark:text-white">
                         {option.label}
+                        {locked && (
+                          <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-orange-600 dark:text-orange-400">
+                            Lojista+
+                          </span>
+                        )}
                       </span>
                       <span className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
                         {option.description}
                       </span>
                     </span>
                   </label>
-                ))}
+                  )
+                })}
               </div>
             </fieldset>
 

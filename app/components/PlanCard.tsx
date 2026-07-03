@@ -27,7 +27,7 @@ export default function PlanCard({
     >
       {highlighted && (
         <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-yellow-400 px-3 py-0.5 text-[11px] font-bold uppercase tracking-wide text-zinc-900">
-          Popular
+          Recomendado
         </span>
       )}
 
@@ -51,6 +51,32 @@ export default function PlanCard({
         <li className="flex items-start gap-2">
           <CheckIcon />
           <span>
+            Até <strong>{plan.monitorLimit + 1}</strong> criações de monitor por dia
+          </span>
+        </li>
+        <li className="flex items-start gap-2">
+          <CheckIcon />
+          <span>
+            {plan.olxAccess ? (
+              <>
+                <strong>Mercado Livre + OLX</strong> (só OLX ou os dois juntos)
+              </>
+            ) : (
+              <>
+                Apenas <strong>Mercado Livre</strong>
+              </>
+            )}
+          </span>
+        </li>
+        <li className="flex items-start gap-2">
+          <CheckIcon />
+          <span>
+            Filtros de relevância, condição e palavras a ignorar
+          </span>
+        </li>
+        <li className="flex items-start gap-2">
+          <CheckIcon />
+          <span>
             {plan.id === 'free' ? (
               <>
                 Novidades verificadas <strong>{formatRefreshMinutes(plan.checkIntervalMinutes)}</strong>
@@ -63,6 +89,14 @@ export default function PlanCard({
             )}
           </span>
         </li>
+        {paid && (
+          <li className="flex items-start gap-2">
+            <CheckIcon />
+            <span>
+              Varredura automática em <strong>várias páginas</strong> por monitor
+            </span>
+          </li>
+        )}
         {paid && (
           <li className="flex items-start gap-2">
             <CheckIcon />

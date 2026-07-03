@@ -27,6 +27,19 @@ export function parseMarketplaceMode(value: unknown): MarketplaceMode {
   return 'ml'
 }
 
+export function marketplaceModeRequiresOlx(mode: MarketplaceMode): boolean {
+  return mode === 'olx' || mode === 'both'
+}
+
+/** Downgrade to ML-only when the user's plan does not include OLX. */
+export function normalizeMarketplaceModeForPlan(
+  mode: MarketplaceMode,
+  olxAccess: boolean,
+): MarketplaceMode {
+  if (!olxAccess && marketplaceModeRequiresOlx(mode)) return 'ml'
+  return mode
+}
+
 export function marketplaceModeLabel(mode: MarketplaceMode): string {
   return MARKETPLACE_MODE_OPTIONS.find((o) => o.id === mode)?.label ?? 'Mercado Livre'
 }

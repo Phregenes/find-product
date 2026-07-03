@@ -1,12 +1,17 @@
 import { NextRequest } from 'next/server'
 import type { Condition, MarketplaceMode, SortBy } from '@/lib/product'
 import { parseFilterMode } from '@/lib/monitor-filter'
-import { parseMarketplaceMode } from '@/lib/marketplace'
+import { parseMarketplaceMode, normalizeMarketplaceModeForPlan, marketplaceModeRequiresOlx } from '@/lib/marketplace'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveSearch } from '@/lib/searches'
 import { clearMonitorSnapshot } from '@/lib/monitor-snapshot'
 import { countUserMonitors, getUserPlan } from '@/lib/plans-server'
+import {
+  assertCanCreateMonitorToday,
+  MonitorDailyCreationLimitError,
+  recordMonitorCreation,
+} from '@/lib/monitor-creation-limit'
 import { MONITOR_LIST_SELECT } from '@/lib/monitors'
 
 export const dynamic = 'force-dynamic'
@@ -44,12 +49,23 @@ export async function POST(request: NextRequest) {
     ? (body.exclude_terms as string[]).map((t) => String(t).trim()).filter(Boolean)
     : []
   const emailAlertsRequested = body.email_alerts === true
-  const marketplaceMode = parseMarketplaceMode(body.marketplace_mode)
+  const requestedMode = parseMarketplaceMode(body.marketplace_mode)
   if (!query) return Response.json({ error: 'Query obrigatória' }, { status: 400 })
 
   try {
     const admin = createAdminClient()
     const plan = await getUserPlan(userId)
+    const marketplaceMode = normalizeMarketplaceModeForPlan(requestedMode, plan.olxAccess)
+    if (marketplaceModeRequiresOlx(requestedMode) && !plan.olxAccess) {
+      return Response.json(
+        {
+          error: 'Busca na OLX disponível a partir do plano Lojista. Faça upgrade para monitorar OLX ou ML + OLX.',
+          code: 'OLX_PLAN_REQUIRED',
+          plan: plan.id,
+        },
+        { status: 403 },
+      )
+    }
     const emailAlerts = plan.emailAlerts && emailAlertsRequested
 
     let primarySearch
@@ -85,7 +101,26 @@ export async function POST(request: NextRequest) {
           { status: 403 },
         )
       }
+
+      try {
+        await assertCanCreateMonitorToday(userId, plan)
+      } catch (err) {
+        if (err instanceof MonitorDailyCreationLimitError) {
+          return Response.json(
+            {
+              error: err.message,
+              code: err.code,
+              dailyLimit: err.dailyLimit,
+              plan: plan.id,
+            },
+            { status: 403 },
+          )
+        }
+        throw err
+      }
     }
+
+    const isNewMonitor = !existing
 
     const { data, error } = await admin
       .from('monitors')
@@ -105,6 +140,11 @@ export async function POST(request: NextRequest) {
       .select(MONITOR_LIST_SELECT)
       .single()
     if (error) throw error
+
+    if (isNewMonitor && data?.id) {
+      await recordMonitorCreation(userId, data.id as string)
+    }
+
     return Response.json({ monitor: data })
   } catch (err) {
     return Response.json({ error: (err as Error).message }, { status: 500 })

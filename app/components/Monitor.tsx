@@ -981,6 +981,7 @@ export default function MonitorApp() {
         planName={planUsage?.plan.name}
         monitorLimit={planUsage?.monitorLimit}
         planEmailAlerts={planUsage?.plan.emailAlerts}
+        planOlxAccess={planUsage?.plan.olxAccess}
         onClose={() => setCreateModalOpen(false)}
         onSubmit={handleCreateMonitor}
       />

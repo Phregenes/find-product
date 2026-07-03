@@ -5,6 +5,7 @@
  * - clientRefreshMinutes → min interval to re-read DB while the app is open
  * - activeHourStart/End → BRT window when scraping is allowed
  * - emailAlerts → cron sends email when new listings appear (Lojista+)
+ * - olxAccess → OLX and ML+OLX monitors (Lojista+)
  *
  * New signups get `free`. Paid tiers: garimpo, lojista, pro.
  * Per-user plan is stored in `profiles.plan` (Supabase).
@@ -31,6 +32,8 @@ export interface PlanConfig {
   tagline: string
   /** Whether this plan sends new-listing alerts by email (cron). */
   emailAlerts: boolean
+  /** OLX and ML+OLX monitors (Lojista and Pro). */
+  olxAccess: boolean
 }
 
 export const DEFAULT_PLAN_ID: PlanId = 'free'
@@ -49,6 +52,7 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     activeHourEnd: 24,
     tagline: 'Experimente com 1 monitor antes de assinar.',
     emailAlerts: false,
+    olxAccess: false,
   },
   garimpo: {
     id: 'garimpo',
@@ -61,6 +65,7 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     activeHourEnd: 20,
     tagline: 'Para quem garimpa oportunidades no dia a dia.',
     emailAlerts: false,
+    olxAccess: false,
   },
   lojista: {
     id: 'lojista',
@@ -73,6 +78,7 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     activeHourEnd: 20,
     tagline: 'Mais monitores e atualizações frequentes.',
     emailAlerts: true,
+    olxAccess: true,
   },
   pro: {
     id: 'pro',
@@ -85,6 +91,7 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     activeHourEnd: 24,
     tagline: 'Máxima cobertura para operação profissional.',
     emailAlerts: true,
+    olxAccess: true,
   },
 }
 
@@ -97,6 +104,15 @@ export function getPlanConfig(planId: string | null | undefined): PlanConfig {
 
 export function isPaidPlan(planId: PlanId): planId is PaidPlanId {
   return planId !== 'free'
+}
+
+export function planSupportsOlx(planId: PlanId | string | null | undefined): boolean {
+  return getPlanConfig(planId).olxAccess
+}
+
+/** Max new monitors per calendar day (BRT) — monitorLimit + 1 anti abuse. */
+export function dailyMonitorCreationLimit(plan: PlanConfig): number {
+  return plan.monitorLimit + 1
 }
 
 export function formatPlanPrice(plan: PlanConfig): string {
