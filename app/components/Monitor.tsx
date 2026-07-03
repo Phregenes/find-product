@@ -164,13 +164,6 @@ function ProductCard({ product, isNew }: { product: Product; isNew: boolean }) {
           {product.title}
         </p>
 
-        <div className="flex items-center gap-1.5">
-          <MarketplaceBadge marketplace={marketplace} />
-          <span className="truncate text-[10px] text-zinc-400 sm:text-xs">
-            {productMarketplaceLabel(marketplace)}
-          </span>
-        </div>
-
         <div className="mt-auto pt-1">
           {product.originalPrice && product.originalPrice !== product.price && (
             <p className="text-[10px] text-zinc-400 line-through sm:text-xs">{product.originalPrice}</p>
