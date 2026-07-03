@@ -82,28 +82,78 @@ export default function HomePage() {
         </section>
 
         {/* How it works */}
-        <section className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
-          <h2 className="text-center text-2xl font-bold text-zinc-900 dark:text-white">
-            Como funciona
-          </h2>
-          <ol className="mt-10 grid gap-6 sm:grid-cols-3">
-            {[
-              { step: '1', title: 'Crie sua conta', text: 'Comece grátis com 1 monitor no Mercado Livre.' },
-              { step: '2', title: 'Configure a busca', text: 'Escolha marketplace, condição, filtros de relevância e termos a ignorar.' },
-              { step: '3', title: 'Acompanhe novidades', text: 'Volte ao app (ou receba e-mail no Lojista+) e veja só o que é novo.' },
-            ].map((item) => (
-              <li
-                key={item.step}
-                className="rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900"
+        <section className="border-t border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40">
+          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
+            <div className="mx-auto max-w-2xl text-center">
+              <p className="text-xs font-semibold uppercase tracking-widest text-yellow-600 dark:text-yellow-400">
+                Em 3 passos
+              </p>
+              <h2 className="mt-2 text-2xl font-bold text-zinc-900 sm:text-3xl dark:text-white">
+                Do cadastro ao primeiro alerta
+              </h2>
+              <p className="mt-3 text-sm text-zinc-600 sm:text-base dark:text-zinc-400">
+                Você configura uma vez; o FindProduct varre os marketplaces e mostra só o que mudou.
+              </p>
+            </div>
+
+            <ol className="relative mt-12 grid gap-8 lg:grid-cols-3 lg:gap-6">
+              <div
+                aria-hidden
+                className="pointer-events-none absolute left-[16.67%] right-[16.67%] top-10 hidden h-px bg-gradient-to-r from-transparent via-yellow-400/60 to-transparent lg:block"
+              />
+
+              <HowItWorksStep
+                step={1}
+                title="Crie sua conta"
+                summary="Grátis e em menos de um minuto — sem cartão."
+                icon={
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                }
+                highlights={[
+                  '1 monitor no Mercado Livre no plano grátis',
+                  'Upgrade quando precisar de mais cobertura',
+                ]}
+              />
+              <HowItWorksStep
+                step={2}
+                title="Monte o monitor"
+                summary="Defina exatamente o que vale a pena ver no feed."
+                icon={
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                }
+                highlights={[
+                  'Mercado Livre — ou OLX no plano Lojista+',
+                  'Condição (novo/usado), relevância do título e exclusões',
+                ]}
+                badges={['ML', 'OLX']}
+              />
+              <HowItWorksStep
+                step={3}
+                title="Veja só o que é novo"
+                summary="O cron atualiza o catálogo; você entra e age rápido."
+                icon={
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                }
+                highlights={[
+                  'Anúncios novos destacados no app',
+                  'E-mail automático no plano Lojista+',
+                ]}
+                accent="Novo"
+              />
+            </ol>
+
+            <div className="mt-12 flex justify-center">
+              <Link
+                href="/register"
+                className="inline-flex items-center gap-2 rounded-xl bg-yellow-400 px-6 py-3 text-sm font-semibold text-zinc-900 transition hover:bg-yellow-300"
               >
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-yellow-400 text-sm font-bold text-zinc-900">
-                  {item.step}
-                </span>
-                <h3 className="mt-4 font-semibold text-zinc-900 dark:text-white">{item.title}</h3>
-                <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">{item.text}</p>
-              </li>
-            ))}
-          </ol>
+                Começar grátis
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                </svg>
+              </Link>
+            </div>
+          </div>
         </section>
 
         {/* CTA */}
@@ -138,6 +188,75 @@ export default function HomePage() {
         </Link>
       </footer>
     </div>
+  )
+}
+
+function HowItWorksStep({
+  step,
+  title,
+  summary,
+  icon,
+  highlights,
+  badges,
+  accent,
+}: {
+  step: number
+  title: string
+  summary: string
+  icon: React.ReactNode
+  highlights: string[]
+  badges?: string[]
+  accent?: string
+}) {
+  return (
+    <li className="relative flex flex-col rounded-2xl border border-zinc-200/80 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-yellow-400/20 text-yellow-600 dark:text-yellow-400">
+          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            {icon}
+          </svg>
+        </div>
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-sm font-bold text-white dark:bg-white dark:text-zinc-900">
+          {step}
+        </span>
+      </div>
+
+      <h3 className="mt-5 text-lg font-semibold text-zinc-900 dark:text-white">{title}</h3>
+      <p className="mt-1.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">{summary}</p>
+
+      <ul className="mt-4 flex flex-col gap-2">
+        {highlights.map((line) => (
+          <li key={line} className="flex items-start gap-2 text-sm text-zinc-500 dark:text-zinc-400">
+            <svg className="mt-0.5 h-4 w-4 shrink-0 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+            <span>{line}</span>
+          </li>
+        ))}
+      </ul>
+
+      {(badges || accent) && (
+        <div className="mt-5 flex flex-wrap gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+          {badges?.map((badge) => (
+            <span
+              key={badge}
+              className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                badge === 'OLX'
+                  ? 'bg-orange-500 text-white'
+                  : 'bg-yellow-400 text-zinc-900'
+              }`}
+            >
+              {badge}
+            </span>
+          ))}
+          {accent && (
+            <span className="rounded-full bg-green-500 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+              {accent}
+            </span>
+          )}
+        </div>
+      )}
+    </li>
   )
 }
 
