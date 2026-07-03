@@ -46,7 +46,7 @@ export default function PlanosPage() {
             <li>Filtros de relevância do título (padrão, todas as palavras, frase exata, inteligente)</li>
             <li>Condição novo, usado ou todos — definida na criação do monitor</li>
             <li>Palavras para ignorar na busca</li>
-            <li>Até N+1 criações de monitor por dia (evita abuso de delete/recreate)</li>
+            <li>Até monitores ativos + 1 criações por dia (conta reinicia à meia-noite, horário de Brasília)</li>
           </ul>
           <p className="mt-4 font-medium text-zinc-900 dark:text-white">Exclusivo Lojista e Pro</p>
           <ul className="mt-3 list-inside list-disc space-y-1.5 text-zinc-500 dark:text-zinc-400">

@@ -26,6 +26,9 @@ interface PlanUsage {
   plan: PlanConfig
   monitors: number
   monitorLimit: number
+  creationsToday: number
+  dailyCreationLimit: number
+  remainingCreationsToday: number
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -431,6 +434,9 @@ export default function MonitorApp() {
             plan: data.plan as PlanConfig,
             monitors: data.usage.monitors,
             monitorLimit: data.usage.monitorLimit,
+            creationsToday: data.usage.creationsToday ?? 0,
+            dailyCreationLimit: data.usage.dailyCreationLimit ?? (data.plan as PlanConfig).monitorLimit + 1,
+            remainingCreationsToday: data.usage.remainingCreationsToday ?? 0,
           })
           setIntervalMin((data.plan as PlanConfig).clientRefreshMinutes)
         }
@@ -505,7 +511,19 @@ export default function MonitorApp() {
       const created = list.find((m) => m.id === monitor.id) ?? monitor
       setActiveId(created.id)
       fetchProducts(created)
-      setPlanUsage((u) => u ? { ...u, monitors: list.length } : u)
+      const planRes = await fetch('/api/plan').then((r) => r.json()).catch(() => null)
+      if (planRes?.plan && planRes?.usage) {
+        setPlanUsage({
+          plan: planRes.plan as PlanConfig,
+          monitors: planRes.usage.monitors,
+          monitorLimit: planRes.usage.monitorLimit,
+          creationsToday: planRes.usage.creationsToday ?? 0,
+          dailyCreationLimit: planRes.usage.dailyCreationLimit,
+          remainingCreationsToday: planRes.usage.remainingCreationsToday ?? 0,
+        })
+      } else {
+        setPlanUsage((u) => u ? { ...u, monitors: list.length } : u)
+      }
     } catch (err) {
       setViewState((s) => ({ ...s, error: (err as Error).message }))
     }
@@ -982,6 +1000,8 @@ export default function MonitorApp() {
         monitorLimit={planUsage?.monitorLimit}
         planEmailAlerts={planUsage?.plan.emailAlerts}
         planOlxAccess={planUsage?.plan.olxAccess}
+        dailyCreationLimit={planUsage?.dailyCreationLimit}
+        remainingCreationsToday={planUsage?.remainingCreationsToday}
         onClose={() => setCreateModalOpen(false)}
         onSubmit={handleCreateMonitor}
       />

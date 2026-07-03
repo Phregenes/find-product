@@ -26,6 +26,8 @@ interface CreateMonitorModalProps {
   monitorLimit?: number
   planEmailAlerts?: boolean
   planOlxAccess?: boolean
+  dailyCreationLimit?: number
+  remainingCreationsToday?: number
   onClose: () => void
   onSubmit: (options: CreateMonitorOptions) => void | Promise<void>
 }
@@ -38,6 +40,8 @@ export default function CreateMonitorModal({
   monitorLimit,
   planEmailAlerts = false,
   planOlxAccess = false,
+  dailyCreationLimit,
+  remainingCreationsToday,
   onClose,
   onSubmit,
 }: CreateMonitorModalProps) {
@@ -92,6 +96,8 @@ export default function CreateMonitorModal({
   }
 
   const showExclude = filterMode !== 'default' || excludeInput.length > 0
+  const atDailyCreationLimit = remainingCreationsToday === 0
+  const cannotCreate = atLimit || atDailyCreationLimit
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center sm:p-4">
@@ -296,7 +302,19 @@ export default function CreateMonitorModal({
 
             {atLimit && planName && (
               <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
-                Limite do plano {planName}: {monitorLimit} monitores.
+                Limite do plano {planName}: {monitorLimit} monitores ativos.
+              </p>
+            )}
+
+            {!atLimit && atDailyCreationLimit && dailyCreationLimit != null && (
+              <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                Você atingiu o limite de {dailyCreationLimit} criações de monitor hoje. Tente novamente amanhã (horário de Brasília).
+              </p>
+            )}
+
+            {!atLimit && !atDailyCreationLimit && dailyCreationLimit != null && remainingCreationsToday != null && (
+              <p className="text-[11px] text-zinc-400">
+                Criações restantes hoje: {remainingCreationsToday} de {dailyCreationLimit}
               </p>
             )}
           </div>
@@ -311,7 +329,7 @@ export default function CreateMonitorModal({
             </button>
             <button
               type="submit"
-              disabled={!query.trim() || atLimit || submitting}
+              disabled={!query.trim() || cannotCreate || submitting}
               className="flex-1 rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-semibold text-zinc-900 transition hover:bg-yellow-300 disabled:opacity-40"
             >
               {submitting ? 'Criando…' : 'Criar monitor'}

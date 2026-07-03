@@ -51,12 +51,6 @@ export default function PlanCard({
         <li className="flex items-start gap-2">
           <CheckIcon />
           <span>
-            Até <strong>{plan.monitorLimit + 1}</strong> criações de monitor por dia
-          </span>
-        </li>
-        <li className="flex items-start gap-2">
-          <CheckIcon />
-          <span>
             {plan.olxAccess ? (
               <>
                 <strong>Mercado Livre + OLX</strong> (só OLX ou os dois juntos)
