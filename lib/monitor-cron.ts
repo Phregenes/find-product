@@ -12,6 +12,11 @@ import { writeHeartbeat } from '@/lib/ops'
 import type { MonitorFilterMode } from '@/lib/monitor-filter'
 import { formatScrapeError, isBrowserClosedError } from '@/lib/error-message'
 import { launchBrowser } from '@/lib/scraper-browser'
+import {
+  isVercelRuntime,
+  shouldDelegateToLocalScraper,
+  writeLocalScraperHeartbeat,
+} from '@/lib/local-scraper'
 
 interface SearchRow {
   id: string
@@ -58,6 +63,9 @@ export interface CronRunResult {
     emailed?: boolean
   }>
   at: string
+  /** Vercel skipped because desktop scraper is active (PREFER_LOCAL_SCRAPER). */
+  delegatedToLocal?: boolean
+  message?: string
 }
 
 async function scrapeSearchIfNeeded(
@@ -140,6 +148,35 @@ function maxPagesForSearchPlans(plans: PlanConfig[]): number {
 }
 
 export async function runMonitorCron(now = new Date()): Promise<CronRunResult> {
+  const delegation = await shouldDelegateToLocalScraper()
+  if (delegation.delegate) {
+    const admin = createAdminClient()
+    const { count } = await admin.from('monitors').select('id', { count: 'exact', head: true })
+    const total = count ?? 0
+    await writeHeartbeat(
+      'cron_scrape',
+      'ok',
+      delegation.reason ?? 'Delegado ao scraper local',
+      { delegatedToLocal: true, ran: 0, skipped: total, emailsSent: 0, errors: 0, total },
+    )
+    return {
+      ran: 0,
+      skipped: total,
+      emailsSent: 0,
+      total,
+      results: [],
+      at: now.toISOString(),
+      delegatedToLocal: true,
+      message: delegation.reason,
+    }
+  }
+
+  if (!isVercelRuntime()) {
+    await writeLocalScraperHeartbeat('ok', 'Cron local em execução…', { phase: 'running' }).catch(
+      () => {},
+    )
+  }
+
   const admin = createAdminClient()
 
   const { data: monitorRows, error: mErr } = await admin
@@ -330,6 +367,16 @@ export async function runMonitorCron(now = new Date()): Promise<CronRunResult> {
       : `Executado: ${ran} monitor(es), ${skipped} ignorado(s)`,
     { ran, skipped, emailsSent, errors, total: monitors.length, failedMonitors },
   )
+
+  if (!isVercelRuntime()) {
+    await writeLocalScraperHeartbeat(
+      errors > 0 ? 'error' : 'ok',
+      errors > 0
+        ? `${errors} monitor(es) com erro`
+        : `Local: ${ran} processado(s), ${skipped} ignorado(s)`,
+      { ran, skipped, emailsSent, errors, total: monitors.length },
+    ).catch(() => {})
+  }
 
   return {
     ran,

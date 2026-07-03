@@ -9,10 +9,5 @@
       "memory": 2048
     }
   },
-  "crons": [
-    {
-      "path": "/api/cron/scrape",
-      "schedule": "0 11 * * *"
-    }
-  ]
+  "crons": []
 }

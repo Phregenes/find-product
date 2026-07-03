@@ -7,6 +7,12 @@ import {
   getProxyUsageSummary,
   isProxyEnabled,
 } from '@/lib/proxy-usage'
+import {
+  getLocalScraperLastSeen,
+  isLocalScraperActive,
+  isPreferLocalScraper,
+  localScraperTtlMinutes,
+} from '@/lib/local-scraper'
 import type { ServiceStatus, StatusCheck, StatusReport } from '@/lib/ops-types'
 
 export type { ServiceStatus, StatusCheck, StatusReport } from '@/lib/ops-types'
@@ -210,6 +216,24 @@ export async function runStatusChecks(): Promise<StatusReport> {
     message: cronMessage,
     updatedAt: cronUpdatedAt,
   })
+
+  // ── Scraper local (desktop) ───────────────────────────────────────────────
+  const localLast = await getLocalScraperLastSeen()
+  if (localLast || isPreferLocalScraper()) {
+    const active = await isLocalScraperActive()
+    const age = localLast ? ageMinutes(localLast.at.toISOString(), now) : null
+    checks.push({
+      id: 'local_scraper',
+      name: 'Scraper local (sua máquina)',
+      status: active ? 'ok' : localLast ? 'degraded' : 'degraded',
+      message: active
+        ? `Ativo ${formatAge(age)} — Vercel delega scrape (${localScraperTtlMinutes()} min TTL)`
+        : localLast
+          ? `Inativo ${formatAge(age)} — Vercel usa proxy se PREFER_LOCAL_SCRAPER=true`
+          : 'Nunca executou — use npm run cron:worker:loop no Mac',
+      updatedAt: localLast?.at.toISOString() ?? null,
+    })
+  }
 
   // ── Email ─────────────────────────────────────────────────────────────────
   const emailOk = isEmailConfigured()

@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "cron:worker": "tsx --require ./scripts/preload-server-only.cjs scripts/run-local-cron.ts",
+    "cron:worker:loop": "tsx --require ./scripts/preload-server-only.cjs scripts/run-local-cron.ts --loop"
   },
   "dependencies": {
     "@sparticuz/chromium": "^149.0.0",
@@ -29,6 +31,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
     "tailwindcss": "^4",
+    "tsx": "^4.23.0",
     "typescript": "^5"
   }
 }
