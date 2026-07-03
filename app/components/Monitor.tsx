@@ -797,9 +797,7 @@ export default function MonitorApp() {
                 <span className="shrink-0 text-xs text-zinc-400">
                   {viewState.loading
                     ? (viewState.products.length === 0 ? 'buscando primeira página...' : 'carregando...')
-                    : viewState.awaitingFirstScan || viewState.products.length === 0
-                      ? formatNextUpdate(viewState.nextUpdateInMin, viewState.awaitingFirstScan)
-                      : relativeTime(lastCheckedMs(activeMonitor), now)}
+                    : formatNextUpdate(viewState.nextUpdateInMin, viewState.awaitingFirstScan)}
                 </span>
               </div>
 
