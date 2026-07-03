@@ -1,10 +1,13 @@
+import { NextRequest } from 'next/server'
+import { canViewOpsDetails } from '@/lib/ops-admin'
 import { runStatusChecks } from '@/lib/ops'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const report = await runStatusChecks()
+    const includeOpsDetail = await canViewOpsDetails(request)
+    const report = await runStatusChecks({ includeOpsDetail })
     return Response.json(report)
   } catch (err) {
     return Response.json(

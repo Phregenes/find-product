@@ -3,16 +3,12 @@ import 'server-only'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isEmailConfigured } from '@/lib/email/send'
 import {
-  formatProxyBytes,
-  getProxyUsageSummary,
-  isProxyEnabled,
-} from '@/lib/proxy-usage'
-import {
   getLocalScraperLastSeen,
   isLocalScraperActive,
   isPreferLocalScraper,
   localScraperTtlMinutes,
 } from '@/lib/local-scraper'
+import { opsDetailServiceIds } from '@/lib/ops-admin'
 import type { ServiceStatus, StatusCheck, StatusReport } from '@/lib/ops-types'
 
 export type { ServiceStatus, StatusCheck, StatusReport } from '@/lib/ops-types'
@@ -78,7 +74,10 @@ async function loadHeartbeats(): Promise<Map<string, HeartbeatRow>> {
   }
 }
 
-export async function runStatusChecks(): Promise<StatusReport> {
+export async function runStatusChecks(
+  options: { includeOpsDetail?: boolean } = {},
+): Promise<StatusReport> {
+  const includeOpsDetail = options.includeOpsDetail ?? false
   const now = Date.now()
   const checks: StatusCheck[] = []
   const heartbeats = await loadHeartbeats()
@@ -245,66 +244,13 @@ export async function runStatusChecks(): Promise<StatusReport> {
     updatedAt: null,
   })
 
-  // ── Proxy IPRoyal ─────────────────────────────────────────────────────────
-  let proxySummary = null
-  if (isProxyEnabled()) {
-    try {
-      proxySummary = await getProxyUsageSummary(30)
-      const days =
-        proxySummary.daysRemaining ?? proxySummary.estimatedDaysRemaining
-      const daily =
-        proxySummary.avgBytesPerDay ?? proxySummary.estimatedDailyBytes ?? 0
-      let proxyStatus: ServiceStatus = 'ok'
-      let proxyMessage = `${formatProxyBytes(proxySummary.periodBytes)} nos últimos 30 dias (${proxySummary.periodScrapes} scrapes)`
-
-      if (proxySummary.usedPercent >= 90) proxyStatus = 'error'
-      else if (proxySummary.usedPercent >= 70) proxyStatus = 'degraded'
-
-      if (days != null && days < 7) proxyStatus = 'error'
-      else if (days != null && days < 14) proxyStatus = worstStatus([proxyStatus, 'degraded'])
-
-      if (days != null) {
-        proxyMessage += ` · ~${days} dias restantes (${formatProxyBytes(daily)}/dia)`
-      } else {
-        proxyMessage += ` · ~${formatProxyBytes(daily)}/dia estimado`
-      }
-
-      checks.push({
-        id: 'proxy',
-        name: 'Proxy IPRoyal',
-        status: proxyStatus,
-        message: proxyMessage,
-        updatedAt: new Date().toISOString(),
-      })
-    } catch (err) {
-      checks.push({
-        id: 'proxy',
-        name: 'Proxy IPRoyal',
-        status: 'degraded',
-        message: `Falha ao ler uso: ${(err as Error).message}`,
-        updatedAt: null,
-      })
-    }
-  }
+  const visible = includeOpsDetail
+    ? checks
+    : checks.filter((c) => !opsDetailServiceIds().has(c.id))
 
   return {
-    status: worstStatus(checks.map((c) => c.status)),
+    status: worstStatus(visible.map((c) => c.status)),
     checkedAt: new Date().toISOString(),
-    services: checks,
-    proxy: proxySummary
-      ? {
-          budgetGb: proxySummary.budgetGb,
-          periodBytes: proxySummary.periodBytes,
-          periodScrapes: proxySummary.periodScrapes,
-          todayBytes: proxySummary.todayBytes,
-          avgBytesPerScrape: proxySummary.avgBytesPerScrape,
-          avgBytesPerDay: proxySummary.avgBytesPerDay,
-          usedPercent: proxySummary.usedPercent,
-          daysRemaining: proxySummary.daysRemaining,
-          depletedAt: proxySummary.depletedAt,
-          estimatedDailyBytes: proxySummary.estimatedDailyBytes,
-          estimatedDaysRemaining: proxySummary.estimatedDaysRemaining,
-        }
-      : undefined,
+    services: visible,
   }
 }
