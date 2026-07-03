@@ -70,7 +70,7 @@ async function scrapeSearchIfNeeded(
     search.query,
     search.sort_by,
     search.condition,
-    { browser, maxPages },
+    { browser, maxPages, leanBandwidth: true },
   )
 
   if (scraped.page1.length > 0) {

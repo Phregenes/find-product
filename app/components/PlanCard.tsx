@@ -3,7 +3,6 @@ import {
   type PlanConfig,
   formatPlanPrice,
   formatCheckInterval,
-  formatRefreshMinutes,
   formatActiveHours,
   isPaidPlan,
 } from '@/lib/plans'
@@ -76,15 +75,6 @@ export default function PlanCard({
             <strong>{formatCheckInterval(plan.checkIntervalMinutes)}</strong>
           </span>
         </li>
-        {paid && (
-          <li className="flex items-start gap-2">
-            <CheckIcon />
-            <span>
-              Com o app aberto, leitura a cada{' '}
-              <strong>{formatRefreshMinutes(plan.clientRefreshMinutes)}</strong>
-            </span>
-          </li>
-        )}
         {paid && (
           <li className="flex items-start gap-2">
             <CheckIcon />

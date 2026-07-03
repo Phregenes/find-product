@@ -59,6 +59,34 @@ const BLOCKED_HOST_SUFFIXES = [
   'temu.com',
 ]
 
+/** ML asset / telemetry hosts — blocked in cron (lean) mode; list HTML is enough. */
+const LEAN_BANDWIDTH_HOST_SUFFIXES = [
+  'mlstatic.com',
+  'matt.mercadolivre.com.br',
+  'snoopy.mercadolibre.com',
+  'mercadoclics.com',
+  'api.mercadolibre.com',
+  'events.mercadolibre.com',
+  'o11y-proxy-otel-frontend.meli.com',
+  'static.olx.com.br',
+  'cdn.track.olx.com.br',
+  'search-microfrontends.olx.com.br',
+  'lurker.olx.com.br',
+]
+
+export interface ScrapeContextOptions {
+  blockImages?: boolean
+  /** Cron: block asset CDNs; parse image URLs from HTML attributes only. */
+  leanBandwidth?: boolean
+}
+
+function isLeanBlockedHost(hostname: string): boolean {
+  const host = hostname.toLowerCase()
+  return LEAN_BANDWIDTH_HOST_SUFFIXES.some(
+    (suffix) => host === suffix || host.endsWith(`.${suffix}`),
+  )
+}
+
 function isBlockedHost(hostname: string): boolean {
   const host = hostname.toLowerCase()
   return BLOCKED_HOST_SUFFIXES.some(
@@ -66,12 +94,23 @@ function isBlockedHost(hostname: string): boolean {
   )
 }
 
-function shouldBlockRequest(url: string, resourceType: string, blockImages: boolean): boolean {
+function shouldBlockRequest(
+  url: string,
+  resourceType: string,
+  blockImages: boolean,
+  leanBandwidth: boolean,
+): boolean {
   if (blockImages && (resourceType === 'image' || resourceType === 'media' || resourceType === 'font')) {
     return true
   }
+  if (leanBandwidth && (resourceType === 'stylesheet' || resourceType === 'font' || resourceType === 'media')) {
+    return true
+  }
   try {
-    return isBlockedHost(new URL(url).hostname)
+    const host = new URL(url).hostname
+    if (isBlockedHost(host)) return true
+    if (leanBandwidth && isLeanBlockedHost(host)) return true
+    return false
   } catch {
     return false
   }
@@ -100,9 +139,10 @@ export async function launchBrowser() {
 
 export async function createScrapeContext(
   browser: Browser,
-  opts?: { blockImages?: boolean },
+  opts?: ScrapeContextOptions,
 ) {
   const blockImages = opts?.blockImages !== false
+  const leanBandwidth = opts?.leanBandwidth === true
 
   const context = await browser.newContext({
     userAgent:
@@ -123,7 +163,7 @@ export async function createScrapeContext(
   await context.route('**/*', (route) => {
     const url = route.request().url()
     const type = route.request().resourceType()
-    if (shouldBlockRequest(url, type, blockImages)) {
+    if (shouldBlockRequest(url, type, blockImages, leanBandwidth)) {
       return route.abort()
     }
     return route.continue()

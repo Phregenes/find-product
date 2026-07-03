@@ -165,7 +165,12 @@ async function scrapeProductsFromPage(browserPage: Page): Promise<Product[]> {
         const imgEl = item.querySelector<HTMLImageElement>(
           'img.poly-component__picture, img[data-testid="picture"], img.ui-search-result-image__element',
         )
-        const image = imgEl?.src ?? imgEl?.getAttribute('data-src') ?? ''
+        const image =
+          imgEl?.getAttribute('data-src')
+          ?? imgEl?.getAttribute('data-lazy-src')
+          ?? imgEl?.src
+          ?? imgEl?.getAttribute('srcset')?.split(/\s/)[0]
+          ?? ''
 
         const freeShipping = !!item
           .querySelector('[class*="shipping"]')
@@ -218,7 +223,11 @@ async function scrapeProductsFromPage(browserPage: Page): Promise<Product[]> {
   }, ML_PAGE_STEP)
 }
 
-async function loadSearchPage(browserPage: Page, url: string): Promise<Product[]> {
+async function loadSearchPage(
+  browserPage: Page,
+  url: string,
+  leanBandwidth = false,
+): Promise<Product[]> {
   await browserPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 })
   await dismissCookieBanner(browserPage)
   await browserPage
@@ -233,12 +242,12 @@ async function loadSearchPage(browserPage: Page, url: string): Promise<Product[]
 
   let itemsFound = await countResultItems(browserPage)
   if (itemsFound === 0) {
-    await browserPage.waitForTimeout(2_000)
+    await browserPage.waitForTimeout(leanBandwidth ? 1_500 : 2_000)
     itemsFound = await countResultItems(browserPage)
   }
 
   if (itemsFound === 0) return []
-  await scrollResultsGrid(browserPage)
+  if (!leanBandwidth) await scrollResultsGrid(browserPage)
   return scrapeProductsFromPage(browserPage)
 }
 
@@ -248,15 +257,16 @@ async function loadSearchPageWithFallback(
   sortBy: SortBy,
   page: number,
   condition: Condition,
+  leanBandwidth = false,
 ): Promise<{ products: Product[]; sortUsed: SortBy }> {
   const primaryUrl = buildSearchUrl(query, sortBy, page, condition)
-  let products = await loadSearchPage(browserPage, primaryUrl)
+  let products = await loadSearchPage(browserPage, primaryUrl, leanBandwidth)
   if (products.length > 0 || sortBy === 'relevance') {
     return { products, sortUsed: sortBy }
   }
 
   const fallbackUrl = buildSearchUrl(query, 'relevance', page, condition)
-  products = await loadSearchPage(browserPage, fallbackUrl)
+  products = await loadSearchPage(browserPage, fallbackUrl, leanBandwidth)
   return { products, sortUsed: 'relevance' }
 }
 
@@ -304,17 +314,22 @@ export async function scrapeSearchPages(
   maxPages = getMonitorScrapeMaxPages(),
   startPage = 1,
   browser?: Browser,
+  leanBandwidth = false,
 ): Promise<{ page1: Product[]; allPages: Product[]; hasMore: boolean }> {
   try {
-    return await scrapeSearchPagesOnce(query, sortBy, condition, maxPages, startPage, browser)
+    return await scrapeSearchPagesOnce(
+      query, sortBy, condition, maxPages, startPage, browser, leanBandwidth,
+    )
   } catch (err) {
     if (!isBrowserClosedError(err)) throw err
     if (maxPages <= 1) throw err
     try {
-      return await scrapeSearchPagesOnce(query, sortBy, condition, 1, startPage, browser)
+      return await scrapeSearchPagesOnce(
+        query, sortBy, condition, 1, startPage, browser, leanBandwidth,
+      )
     } catch (retryErr) {
       if (!isBrowserClosedError(retryErr) || browser) throw retryErr
-      return scrapeSearchPagesOnce(query, sortBy, condition, 1, startPage)
+      return scrapeSearchPagesOnce(query, sortBy, condition, 1, startPage, undefined, leanBandwidth)
     }
   }
 }
@@ -326,12 +341,13 @@ async function scrapeSearchPagesOnce(
   maxPages: number,
   startPage: number,
   sharedBrowser?: Browser,
+  leanBandwidth = false,
 ): Promise<{ page1: Product[]; allPages: Product[]; hasMore: boolean }> {
   const ownsBrowser = !sharedBrowser
   const browser = sharedBrowser ?? (await launchBrowser())
 
   try {
-    const context = await createScrapeContext(browser)
+    const context = await createScrapeContext(browser, { leanBandwidth })
     try {
       const browserPage = await context.newPage()
       const allPages: Product[] = []
@@ -348,6 +364,7 @@ async function scrapeSearchPagesOnce(
           sortUsed,
           pageNum,
           condition,
+          leanBandwidth,
         )
         sortUsed = used
 

@@ -191,7 +191,7 @@ async function scrollOlxResults(page: Page): Promise<void> {
   }, lite)
 }
 
-async function loadOlxPage(page: Page, url: string): Promise<Product[]> {
+async function loadOlxPage(page: Page, url: string, leanBandwidth = false): Promise<Product[]> {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 })
   await dismissOlxCookies(page)
   await page.waitForSelector(
@@ -201,12 +201,16 @@ async function loadOlxPage(page: Page, url: string): Promise<Product[]> {
 
   if (await isOlxBlocked(page)) throw new OlxScrapeBlockedError()
 
-  await scrollOlxResults(page)
-  await page.waitForTimeout(800)
+  if (!leanBandwidth) {
+    await scrollOlxResults(page)
+    await page.waitForTimeout(800)
+  } else {
+    await page.waitForTimeout(600)
+  }
 
   let products = await scrapeOlxFromPage(page)
   if (products.length === 0) {
-    await page.waitForTimeout(2000)
+    await page.waitForTimeout(leanBandwidth ? 1_500 : 2_000)
     products = await scrapeOlxFromPage(page)
   }
 
@@ -223,17 +227,22 @@ export async function scrapeOlxSearchPages(
   maxPages = getOlxScrapeMaxPages(),
   startPage = 1,
   sharedBrowser?: Browser,
+  leanBandwidth = false,
 ): Promise<{ page1: Product[]; allPages: Product[]; hasMore: boolean }> {
   try {
-    return await scrapeOlxSearchPagesOnce(query, sortBy, maxPages, startPage, sharedBrowser)
+    return await scrapeOlxSearchPagesOnce(
+      query, sortBy, maxPages, startPage, sharedBrowser, leanBandwidth,
+    )
   } catch (err) {
     if (!isBrowserClosedError(err)) throw err
     if (maxPages <= 1) throw err
     try {
-      return await scrapeOlxSearchPagesOnce(query, sortBy, 1, startPage, sharedBrowser)
+      return await scrapeOlxSearchPagesOnce(
+        query, sortBy, 1, startPage, sharedBrowser, leanBandwidth,
+      )
     } catch (retryErr) {
       if (!isBrowserClosedError(retryErr) || sharedBrowser) throw retryErr
-      return scrapeOlxSearchPagesOnce(query, sortBy, 1, startPage)
+      return scrapeOlxSearchPagesOnce(query, sortBy, 1, startPage, undefined, leanBandwidth)
     }
   }
 }
@@ -244,12 +253,13 @@ async function scrapeOlxSearchPagesOnce(
   maxPages: number,
   startPage: number,
   sharedBrowser?: Browser,
+  leanBandwidth = false,
 ): Promise<{ page1: Product[]; allPages: Product[]; hasMore: boolean }> {
   const ownsBrowser = !sharedBrowser
   const browser = sharedBrowser ?? (await launchBrowser())
 
   try {
-    const context = await createScrapeContext(browser, { blockImages: true })
+    const context = await createScrapeContext(browser, { blockImages: true, leanBandwidth })
     try {
       const browserPage = await context.newPage()
       const allPages: Product[] = []
@@ -259,7 +269,11 @@ async function scrapeOlxSearchPagesOnce(
 
       for (let attempt = 0; attempt < maxPages; attempt++) {
         const pageNum = startPage + attempt
-        const products = await loadOlxPage(browserPage, buildOlxSearchUrl(query, sortBy, pageNum))
+        const products = await loadOlxPage(
+          browserPage,
+          buildOlxSearchUrl(query, sortBy, pageNum),
+          leanBandwidth,
+        )
         hasMore = products.length >= OLX_PAGE_STEP
         if (pageNum === startPage) page1 = products
 

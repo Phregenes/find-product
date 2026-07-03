@@ -9,6 +9,8 @@ import { getMonitorScrapeMaxPages, getOlxScrapeMaxPages } from './scrape-limits'
 export interface ScrapeMarketplaceOptions {
   maxPages?: number
   browser?: Browser
+  /** Cron: block mlstatic/asset CDNs; keep list HTML + image URLs in attributes. */
+  leanBandwidth?: boolean
 }
 
 export async function scrapeMarketplacePages(
@@ -20,10 +22,11 @@ export async function scrapeMarketplacePages(
 ): Promise<{ page1: Product[]; allPages: Product[]; hasMore: boolean }> {
   const browser = opts?.browser
   const maxPages = opts?.maxPages
+  const lean = opts?.leanBandwidth === true
   if (marketplace === 'olx') {
     const pages = getOlxScrapeMaxPages(maxPages)
-    return scrapeOlxSearchPages(query, sortBy, pages, 1, browser)
+    return scrapeOlxSearchPages(query, sortBy, pages, 1, browser, lean)
   }
   const pages = getMonitorScrapeMaxPages(maxPages)
-  return scrapeSearchPages(query, sortBy, condition, pages, 1, browser)
+  return scrapeSearchPages(query, sortBy, condition, pages, 1, browser, lean)
 }
