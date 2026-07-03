@@ -6,6 +6,12 @@ import { ML_PAGE_STEP } from './product'
 import { launchBrowser, createScrapeContext } from './scraper-browser'
 import { isBrowserClosedError } from './error-message'
 import {
+  attachProxyUsageTracker,
+  isProxyEnabled,
+  recordProxyUsageEvent,
+  type ProxyUsageSource,
+} from './proxy-usage'
+import {
   getMonitorScrapeMaxPages,
   isServerlessScrape,
 } from './scrape-limits'
@@ -292,6 +298,7 @@ export async function searchProducts(
 
   try {
     const context = await createScrapeContext(browser)
+    const tracker = attachProxyUsageTracker(context)
     const browserPage = await context.newPage()
     const { products } = await loadSearchPageWithFallback(
       browserPage,
@@ -300,7 +307,22 @@ export async function searchProducts(
       page,
       condition,
     )
-    return stampProducts(products, excludeIds)
+    const result = stampProducts(products, excludeIds)
+    if (isProxyEnabled()) {
+      const snap = tracker.snapshot()
+      await recordProxyUsageEvent({
+        source: 'search',
+        marketplace: 'ml',
+        query,
+        maxPages: 1,
+        leanBandwidth: false,
+        bytesDownloaded: snap.bytesDownloaded,
+        bytesUploaded: snap.bytesUploaded,
+        requestCount: snap.requestCount,
+        durationMs: snap.durationMs,
+      })
+    }
+    return result
   } finally {
     await browser.close()
   }
@@ -315,21 +337,24 @@ export async function scrapeSearchPages(
   startPage = 1,
   browser?: Browser,
   leanBandwidth = false,
+  usageSource: ProxyUsageSource = leanBandwidth ? 'cron' : 'search',
 ): Promise<{ page1: Product[]; allPages: Product[]; hasMore: boolean }> {
   try {
     return await scrapeSearchPagesOnce(
-      query, sortBy, condition, maxPages, startPage, browser, leanBandwidth,
+      query, sortBy, condition, maxPages, startPage, browser, leanBandwidth, usageSource,
     )
   } catch (err) {
     if (!isBrowserClosedError(err)) throw err
     if (maxPages <= 1) throw err
     try {
       return await scrapeSearchPagesOnce(
-        query, sortBy, condition, 1, startPage, browser, leanBandwidth,
+        query, sortBy, condition, 1, startPage, browser, leanBandwidth, usageSource,
       )
     } catch (retryErr) {
       if (!isBrowserClosedError(retryErr) || browser) throw retryErr
-      return scrapeSearchPagesOnce(query, sortBy, condition, 1, startPage, undefined, leanBandwidth)
+      return scrapeSearchPagesOnce(
+        query, sortBy, condition, 1, startPage, undefined, leanBandwidth, usageSource,
+      )
     }
   }
 }
@@ -342,12 +367,14 @@ async function scrapeSearchPagesOnce(
   startPage: number,
   sharedBrowser?: Browser,
   leanBandwidth = false,
+  usageSource: ProxyUsageSource = leanBandwidth ? 'cron' : 'search',
 ): Promise<{ page1: Product[]; allPages: Product[]; hasMore: boolean }> {
   const ownsBrowser = !sharedBrowser
   const browser = sharedBrowser ?? (await launchBrowser())
 
   try {
     const context = await createScrapeContext(browser, { leanBandwidth })
+    const tracker = attachProxyUsageTracker(context)
     try {
       const browserPage = await context.newPage()
       const allPages: Product[] = []
@@ -391,6 +418,20 @@ async function scrapeSearchPagesOnce(
         hasMore,
       }
     } finally {
+      if (isProxyEnabled()) {
+        const snap = tracker.snapshot()
+        await recordProxyUsageEvent({
+          source: usageSource,
+          marketplace: 'ml',
+          query,
+          leanBandwidth,
+          maxPages,
+          bytesDownloaded: snap.bytesDownloaded,
+          bytesUploaded: snap.bytesUploaded,
+          requestCount: snap.requestCount,
+          durationMs: snap.durationMs,
+        })
+      }
       await context.close()
     }
   } finally {

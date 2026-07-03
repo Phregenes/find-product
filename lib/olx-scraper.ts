@@ -6,6 +6,12 @@ import { OLX_PAGE_STEP } from './product'
 import { launchBrowser, createScrapeContext } from './scraper-browser'
 import { isBrowserClosedError } from './error-message'
 import {
+  attachProxyUsageTracker,
+  isProxyEnabled,
+  recordProxyUsageEvent,
+  type ProxyUsageSource,
+} from './proxy-usage'
+import {
   getOlxScrapeMaxPages,
   isServerlessScrape,
 } from './scrape-limits'
@@ -228,21 +234,24 @@ export async function scrapeOlxSearchPages(
   startPage = 1,
   sharedBrowser?: Browser,
   leanBandwidth = false,
+  usageSource: ProxyUsageSource = leanBandwidth ? 'cron' : 'search',
 ): Promise<{ page1: Product[]; allPages: Product[]; hasMore: boolean }> {
   try {
     return await scrapeOlxSearchPagesOnce(
-      query, sortBy, maxPages, startPage, sharedBrowser, leanBandwidth,
+      query, sortBy, maxPages, startPage, sharedBrowser, leanBandwidth, usageSource,
     )
   } catch (err) {
     if (!isBrowserClosedError(err)) throw err
     if (maxPages <= 1) throw err
     try {
       return await scrapeOlxSearchPagesOnce(
-        query, sortBy, 1, startPage, sharedBrowser, leanBandwidth,
+        query, sortBy, 1, startPage, sharedBrowser, leanBandwidth, usageSource,
       )
     } catch (retryErr) {
       if (!isBrowserClosedError(retryErr) || sharedBrowser) throw retryErr
-      return scrapeOlxSearchPagesOnce(query, sortBy, 1, startPage, undefined, leanBandwidth)
+      return scrapeOlxSearchPagesOnce(
+        query, sortBy, 1, startPage, undefined, leanBandwidth, usageSource,
+      )
     }
   }
 }
@@ -254,12 +263,14 @@ async function scrapeOlxSearchPagesOnce(
   startPage: number,
   sharedBrowser?: Browser,
   leanBandwidth = false,
+  usageSource: ProxyUsageSource = leanBandwidth ? 'cron' : 'search',
 ): Promise<{ page1: Product[]; allPages: Product[]; hasMore: boolean }> {
   const ownsBrowser = !sharedBrowser
   const browser = sharedBrowser ?? (await launchBrowser())
 
   try {
     const context = await createScrapeContext(browser, { blockImages: true, leanBandwidth })
+    const tracker = attachProxyUsageTracker(context)
     try {
       const browserPage = await context.newPage()
       const allPages: Product[] = []
@@ -297,6 +308,20 @@ async function scrapeOlxSearchPagesOnce(
         hasMore,
       }
     } finally {
+      if (isProxyEnabled()) {
+        const snap = tracker.snapshot()
+        await recordProxyUsageEvent({
+          source: usageSource,
+          marketplace: 'olx',
+          query,
+          leanBandwidth,
+          maxPages,
+          bytesDownloaded: snap.bytesDownloaded,
+          bytesUploaded: snap.bytesUploaded,
+          requestCount: snap.requestCount,
+          durationMs: snap.durationMs,
+        })
+      }
       await context.close()
     }
   } finally {

@@ -44,7 +44,7 @@ export async function scrapeInitialMonitorCatalog(
         monitor.query,
         sort,
         condition,
-        { maxPages: 1, browser: browser ?? undefined },
+        { maxPages: 1, browser: browser ?? undefined, usageSource: 'initial' },
       )
       if (page1.length > 0) await writeCache(searchId, 1, page1)
       for (const p of page1) {

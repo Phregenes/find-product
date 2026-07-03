@@ -87,6 +87,54 @@ export default function StatusPage() {
           </div>
         )}
 
+        {report?.proxy && (
+          <div className="mb-8 rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+            <p className="font-medium text-zinc-900 dark:text-white">Uso proxy IPRoyal</p>
+            <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <dt className="text-zinc-400">Plano</dt>
+                <dd className="font-medium text-zinc-800 dark:text-zinc-200">
+                  {report.proxy.budgetGb} GB
+                </dd>
+              </div>
+              <div>
+                <dt className="text-zinc-400">Usado (30 dias)</dt>
+                <dd className="font-medium text-zinc-800 dark:text-zinc-200">
+                  {(report.proxy.periodBytes / 1024 ** 2).toFixed(1)} MB
+                  {' '}({report.proxy.usedPercent.toFixed(1)}%)
+                </dd>
+              </div>
+              <div>
+                <dt className="text-zinc-400">Hoje</dt>
+                <dd className="font-medium text-zinc-800 dark:text-zinc-200">
+                  {(report.proxy.todayBytes / 1024 ** 2).toFixed(2)} MB
+                </dd>
+              </div>
+              <div>
+                <dt className="text-zinc-400">Média / scrape</dt>
+                <dd className="font-medium text-zinc-800 dark:text-zinc-200">
+                  {report.proxy.avgBytesPerScrape != null
+                    ? `${(report.proxy.avgBytesPerScrape / 1024 ** 2).toFixed(2)} MB`
+                    : '—'}
+                </dd>
+              </div>
+              <div className="col-span-2">
+                <dt className="text-zinc-400">Estimativa de término</dt>
+                <dd className="font-medium text-zinc-800 dark:text-zinc-200">
+                  {(report.proxy.daysRemaining ?? report.proxy.estimatedDaysRemaining) != null
+                    ? `~${report.proxy.daysRemaining ?? report.proxy.estimatedDaysRemaining} dias`
+                    : '—'}
+                  {report.proxy.depletedAt && (
+                    <span className="ml-1 text-xs font-normal text-zinc-400">
+                      ({new Date(report.proxy.depletedAt).toLocaleDateString('pt-BR')})
+                    </span>
+                  )}
+                </dd>
+              </div>
+            </dl>
+          </div>
+        )}
+
         <div className="flex flex-col gap-3">
           {(report?.services ?? []).map((service) => (
             <div

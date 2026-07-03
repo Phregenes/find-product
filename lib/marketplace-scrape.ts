@@ -6,11 +6,14 @@ import { scrapeSearchPages } from './scraper'
 import { scrapeOlxSearchPages } from './olx-scraper'
 import { getMonitorScrapeMaxPages, getOlxScrapeMaxPages } from './scrape-limits'
 
+import type { ProxyUsageSource } from './proxy-usage'
+
 export interface ScrapeMarketplaceOptions {
   maxPages?: number
   browser?: Browser
   /** Cron: block mlstatic/asset CDNs; keep list HTML + image URLs in attributes. */
   leanBandwidth?: boolean
+  usageSource?: ProxyUsageSource
 }
 
 export async function scrapeMarketplacePages(
@@ -23,10 +26,11 @@ export async function scrapeMarketplacePages(
   const browser = opts?.browser
   const maxPages = opts?.maxPages
   const lean = opts?.leanBandwidth === true
+  const usageSource = opts?.usageSource ?? (lean ? 'cron' : 'search')
   if (marketplace === 'olx') {
     const pages = getOlxScrapeMaxPages(maxPages)
-    return scrapeOlxSearchPages(query, sortBy, pages, 1, browser, lean)
+    return scrapeOlxSearchPages(query, sortBy, pages, 1, browser, lean, usageSource)
   }
   const pages = getMonitorScrapeMaxPages(maxPages)
-  return scrapeSearchPages(query, sortBy, condition, pages, 1, browser, lean)
+  return scrapeSearchPages(query, sortBy, condition, pages, 1, browser, lean, usageSource)
 }
