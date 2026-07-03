@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -8,7 +8,6 @@ import {
   listMonitors,
   createMonitor,
   deleteMonitor,
-  updateMonitorCondition,
   getSeenIds,
   addSeenIds,
 } from '@/lib/monitors'
@@ -16,8 +15,10 @@ import CreateMonitorModal, { type CreateMonitorOptions } from '@/app/components/
 import MonitorDetailsModal from '@/app/components/MonitorDetailsModal'
 import DeleteMonitorModal from '@/app/components/DeleteMonitorModal'
 import { filterModeLabel } from '@/lib/monitor-filter'
+import { marketplaceModeLabel, inferProductMarketplace, productMarketplaceLabel, productImageReferrerPolicy } from '@/lib/marketplace'
+import type { Marketplace } from '@/lib/product'
 import { createClient } from '@/lib/supabase/client'
-import type { Product, Condition } from '@/lib/product'
+import type { Product } from '@/lib/product'
 import type { PlanConfig } from '@/lib/plans'
 import { formatRefreshMinutes } from '@/lib/plans'
 
@@ -85,7 +86,25 @@ function useNow() {
 
 // ─── Product Card ─────────────────────────────────────────────────────────────
 
+function MarketplaceBadge({ marketplace, className = '' }: { marketplace: Marketplace; className?: string }) {
+  const isOlx = marketplace === 'olx'
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide sm:text-[11px] ${
+        isOlx
+          ? 'bg-orange-500 text-white'
+          : 'bg-yellow-400 text-zinc-900'
+      } ${className}`}
+      title={productMarketplaceLabel(marketplace)}
+    >
+      {isOlx ? 'OLX' : 'ML'}
+    </span>
+  )
+}
+
 function ProductCard({ product, isNew }: { product: Product; isNew: boolean }) {
+  const marketplace = inferProductMarketplace(product)
+
   return (
     <a
       href={product.link}
@@ -102,6 +121,10 @@ function ProductCard({ product, isNew }: { product: Product; isNew: boolean }) {
           Novo
         </span>
       )}
+      <MarketplaceBadge
+        marketplace={marketplace}
+        className="absolute right-2 top-2 z-10 shadow sm:right-3 sm:top-3"
+      />
 
       {/* Image */}
       <div className="relative flex h-32 items-center justify-center overflow-hidden bg-zinc-50 sm:h-44 dark:bg-zinc-800">
@@ -110,6 +133,7 @@ function ProductCard({ product, isNew }: { product: Product; isNew: boolean }) {
           <img
             src={product.image}
             alt={product.title}
+            referrerPolicy={productImageReferrerPolicy(product.image)}
             className="h-full w-full object-contain p-2 transition group-hover:scale-105 sm:p-3"
             loading="lazy"
           />
@@ -140,6 +164,13 @@ function ProductCard({ product, isNew }: { product: Product; isNew: boolean }) {
           {product.title}
         </p>
 
+        <div className="flex items-center gap-1.5">
+          <MarketplaceBadge marketplace={marketplace} />
+          <span className="truncate text-[10px] text-zinc-400 sm:text-xs">
+            {productMarketplaceLabel(marketplace)}
+          </span>
+        </div>
+
         <div className="mt-auto pt-1">
           {product.originalPrice && product.originalPrice !== product.price && (
             <p className="text-[10px] text-zinc-400 line-through sm:text-xs">{product.originalPrice}</p>
@@ -157,6 +188,9 @@ function ProductCard({ product, isNew }: { product: Product; isNew: boolean }) {
           )}
           {!product.freeShipping && product.seller && (
             <span className="truncate text-[10px] text-zinc-400 sm:text-xs">{product.seller}</span>
+          )}
+          {!product.seller && product.location && (
+            <span className="truncate text-[10px] text-zinc-400 sm:text-xs">{product.location}</span>
           )}
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             {product.rating && (
@@ -207,6 +241,7 @@ interface ViewState {
   newIds: Set<string>
   awaitingFirstScan: boolean
   nextUpdateInMin: number
+  isInitialCatalog: boolean
 }
 
 const EMPTY_VIEW: ViewState = {
@@ -216,6 +251,7 @@ const EMPTY_VIEW: ViewState = {
   newIds: new Set(),
   awaitingFirstScan: false,
   nextUpdateInMin: 0,
+  isInitialCatalog: false,
 }
 
 export default function MonitorApp() {
@@ -241,6 +277,7 @@ export default function MonitorApp() {
   const [createModalQuery, setCreateModalQuery] = useState('')
   const [detailsMonitor, setDetailsMonitor] = useState<MonitorWithSearch | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<MonitorWithSearch | null>(null)
+  const [marketplaceViewFilter, setMarketplaceViewFilter] = useState<'all' | Marketplace>('all')
 
   useEffect(() => {
     if (!detailsMonitor) return
@@ -249,6 +286,30 @@ export default function MonitorApp() {
   }, [monitors, detailsMonitor?.id])
 
   const activeMonitor = activeId ? monitors.find((m) => m.id === activeId) ?? null : null
+
+  useEffect(() => {
+    setMarketplaceViewFilter('all')
+  }, [activeId])
+
+  const showMarketplaceFilter = activeMonitor?.marketplace_mode === 'both'
+
+  const displayedProducts = useMemo(() => {
+    if (marketplaceViewFilter === 'all') return viewState.products
+    return viewState.products.filter(
+      (p) => inferProductMarketplace(p) === marketplaceViewFilter,
+    )
+  }, [viewState.products, marketplaceViewFilter])
+
+  const displayedNewIds = useMemo(() => {
+    if (marketplaceViewFilter === 'all') return viewState.newIds
+    const ids = new Set<string>()
+    for (const p of viewState.products) {
+      if (viewState.newIds.has(p.id) && inferProductMarketplace(p) === marketplaceViewFilter) {
+        ids.add(p.id)
+      }
+    }
+    return ids
+  }, [viewState.products, viewState.newIds, marketplaceViewFilter])
 
   useEffect(() => {
     viewStateRef.current = viewState
@@ -303,6 +364,7 @@ export default function MonitorApp() {
       if (!isActiveFetch(monitor.id, generation)) return
       if (!res.ok || data.error) throw new Error(data.error ?? 'Erro ao buscar')
 
+      const initialCatalog = !!data.initialCatalog
       const incoming = (data.products as Product[]) ?? []
       const prev = viewStateRef.current
       const products = switchingMonitor
@@ -313,7 +375,9 @@ export default function MonitorApp() {
           })
 
       let newIds: Set<string>
-      if (Array.isArray(data.newProductIds)) {
+      if (initialCatalog) {
+        newIds = new Set<string>()
+      } else if (Array.isArray(data.newProductIds)) {
         newIds = new Set(data.newProductIds as string[])
       } else {
         const seen = await getSeenIds(monitor.id)
@@ -322,7 +386,11 @@ export default function MonitorApp() {
       }
 
       setMonitors((prevMonitors) =>
-        prevMonitors.map((m) => (m.id === monitor.id ? { ...m, new_count: newIds.size } : m)),
+        prevMonitors.map((m) => (
+          m.id === monitor.id
+            ? { ...m, new_count: initialCatalog ? 0 : newIds.size }
+            : m
+        )),
       )
 
       const nextView: ViewState = {
@@ -332,6 +400,7 @@ export default function MonitorApp() {
         newIds,
         awaitingFirstScan: !!data.awaitingFirstScan,
         nextUpdateInMin: typeof data.nextUpdateInMin === 'number' ? data.nextUpdateInMin : 0,
+        isInitialCatalog: initialCatalog,
       }
       monitorViewCacheRef.current.set(monitor.id, nextView)
       setViewState(nextView)
@@ -435,6 +504,7 @@ export default function MonitorApp() {
         filterMode: options.filterMode,
         excludeTerms: options.excludeTerms,
         emailAlerts: options.emailAlerts,
+        marketplaceMode: options.marketplaceMode,
       })
       setCreateModalOpen(false)
       setSearchInput('')
@@ -473,18 +543,6 @@ export default function MonitorApp() {
     }
   }
 
-  async function handleChangeCondition(val: Condition) {
-    if (!activeMonitor) return
-    try {
-      await updateMonitorCondition(activeMonitor.id, val)
-      const list = await refreshMonitors()
-      const updated = list.find((m) => m.id === activeMonitor.id)
-      if (updated) fetchProducts(updated, { clearProducts: true })
-    } catch (err) {
-      setViewState((s) => ({ ...s, error: (err as Error).message }))
-    }
-  }
-
   async function handleSignOut() {
     const supabase = createClient()
     await supabase.auth.signOut()
@@ -494,7 +552,6 @@ export default function MonitorApp() {
 
   const totalNew = monitors.reduce((sum, m) => sum + (m.new_count ?? 0), 0)
   const hasMonitors = monitors.length > 0
-  const activeCondition: Condition = activeMonitor?.searches?.condition ?? 'all'
   const atMonitorLimit = planUsage !== null && planUsage.monitors >= planUsage.monitorLimit
 
   return (
@@ -671,7 +728,7 @@ export default function MonitorApp() {
             </div>
             <div className="flex flex-col gap-1.5">
               <h1 className="text-xl font-bold text-zinc-900 sm:text-2xl dark:text-white">
-                Monitore publicações novas no ML
+                Monitore publicações novas no ML e OLX
               </h1>
               <p className="max-w-xs text-sm text-zinc-500 sm:max-w-sm dark:text-zinc-400">
                 Adicione uma busca acima e o app avisa quando aparecer coisa nova.
@@ -715,6 +772,11 @@ export default function MonitorApp() {
                     {filterModeLabel(activeMonitor.filter_mode)}
                   </span>
                 )}
+                {activeMonitor.marketplace_mode && activeMonitor.marketplace_mode !== 'ml' && (
+                  <span className="shrink-0 rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-semibold text-orange-700 dark:bg-orange-900/40 dark:text-orange-300">
+                    {marketplaceModeLabel(activeMonitor.marketplace_mode)}
+                  </span>
+                )}
                 {viewState.loading && (
                   <svg className="h-3.5 w-3.5 shrink-0 animate-spin text-yellow-500" viewBox="0 0 24 24" fill="none">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -723,7 +785,7 @@ export default function MonitorApp() {
                 )}
                 <span className="shrink-0 text-xs text-zinc-400">
                   {viewState.loading
-                    ? 'carregando...'
+                    ? (viewState.products.length === 0 ? 'buscando primeira página...' : 'carregando...')
                     : viewState.awaitingFirstScan || viewState.products.length === 0
                       ? formatNextUpdate(viewState.nextUpdateInMin, viewState.awaitingFirstScan)
                       : relativeTime(lastCheckedMs(activeMonitor), now)}
@@ -744,26 +806,29 @@ export default function MonitorApp() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-0.5 rounded-lg border border-zinc-200 p-0.5 dark:border-zinc-700">
-                {(['all', 'new', 'used'] as Condition[]).map((val) => (
-                  <button
-                    key={val}
-                    onClick={() => handleChangeCondition(val)}
-                    className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
-                      activeCondition === val
-                        ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900'
-                        : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400'
-                    }`}
-                  >
-                    {val === 'all' ? 'Todos' : val === 'new' ? 'Novo' : 'Usado'}
-                  </button>
-                ))}
-              </div>
+              {showMarketplaceFilter && (
+                <div className="flex items-center gap-0.5 rounded-lg border border-zinc-200 p-0.5 dark:border-zinc-700">
+                  {(['all', 'ml', 'olx'] as const).map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setMarketplaceViewFilter(val)}
+                      className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                        marketplaceViewFilter === val
+                          ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900'
+                          : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400'
+                      }`}
+                    >
+                      {val === 'all' ? 'Todos' : val === 'ml' ? 'ML' : 'OLX'}
+                    </button>
+                  ))}
+                </div>
+              )}
 
-              {viewState.newIds.size > 0 && (
+              {displayedNewIds.size > 0 && (
                 <>
                   <span className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                    {viewState.newIds.size} novo{viewState.newIds.size > 1 ? 's' : ''}
+                    {displayedNewIds.size} novo{displayedNewIds.size > 1 ? 's' : ''}
                   </span>
                   <button
                     onClick={handleMarkSeen}
@@ -803,8 +868,23 @@ export default function MonitorApp() {
           </div>
         )}
 
+        {/* Initial catalog — first scrape on create */}
+        {!viewState.loading && !viewState.error && viewState.isInitialCatalog && viewState.products.length > 0 && (
+          <div className="mb-4 flex items-start gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2.5 text-xs text-blue-800 sm:px-4 sm:py-3 sm:text-sm dark:border-blue-900/30 dark:bg-blue-950/20 dark:text-blue-300">
+            <svg className="mt-0.5 h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p>
+              <strong>{viewState.products.length} anúncios</strong> da primeira página (ML e/ou OLX).
+              O cron completa com mais páginas em até{' '}
+              {formatRefreshMinutes(planUsage?.plan.checkIntervalMinutes ?? 1440)} — depois destacamos só o que for{' '}
+              <strong>novo</strong>.
+            </p>
+          </div>
+        )}
+
         {/* No new products notice */}
-        {!viewState.loading && !viewState.error && viewState.products.length > 0 && viewState.newIds.size === 0 && lastCheckedMs(activeMonitor) > 0 && (
+        {!viewState.loading && !viewState.error && !viewState.isInitialCatalog && viewState.products.length > 0 && viewState.newIds.size === 0 && lastCheckedMs(activeMonitor) > 0 && (
           <div className="mb-4 flex items-center gap-2 rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500 sm:px-4 sm:py-3 sm:text-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
             <svg className="h-3.5 w-3.5 shrink-0 text-green-500 sm:h-4 sm:w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -825,10 +905,15 @@ export default function MonitorApp() {
                   Aguardando primeira varredura
                 </p>
                 <p className="max-w-sm text-xs text-zinc-500 dark:text-zinc-400">
-                  O monitor &ldquo;{activeMonitor.query}&rdquo; foi criado. O cron varre o ML automaticamente
-                  a cada {formatRefreshMinutes(planUsage?.plan.checkIntervalMinutes ?? 1440)} — os resultados
-                  aparecem aqui assim que a primeira busca terminar.
+                  Não foi possível buscar agora (ML/OLX podem bloquear scrape automático).
+                  O cron tenta de novo a cada {formatRefreshMinutes(planUsage?.plan.checkIntervalMinutes ?? 1440)}.
                 </p>
+                <button
+                  onClick={() => fetchProducts(activeMonitor, { force: true })}
+                  className="mt-1 rounded-xl bg-yellow-400 px-4 py-2 text-sm font-semibold text-zinc-900 transition hover:bg-yellow-300"
+                >
+                  Tentar novamente
+                </button>
               </>
             ) : (
               <>
@@ -852,10 +937,25 @@ export default function MonitorApp() {
           </div>
         )}
 
+        {!viewState.loading && viewState.products.length > 0 && displayedProducts.length === 0 && (
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-zinc-100 bg-white px-4 py-10 text-center dark:border-zinc-800 dark:bg-zinc-900">
+            <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
+              Nenhum anúncio do {marketplaceViewFilter === 'ml' ? 'Mercado Livre' : 'OLX'} nesta lista
+            </p>
+            <button
+              type="button"
+              onClick={() => setMarketplaceViewFilter('all')}
+              className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              Ver todos
+            </button>
+          </div>
+        )}
+
         {/* Products grid */}
-        {!viewState.loading && viewState.products.length > 0 && (
+        {!viewState.loading && displayedProducts.length > 0 && (
           <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
-            {viewState.products
+            {displayedProducts
               .slice()
               .sort((a, b) => {
                 const aNew = viewState.newIds.has(a.id) ? 1 : 0

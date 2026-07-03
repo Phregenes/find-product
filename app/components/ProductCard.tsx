@@ -1,5 +1,6 @@
 import type { Product } from '@/lib/product'
 import Image from 'next/image'
+import { productImageReferrerPolicy } from '@/lib/marketplace'
 
 interface Props {
   product: Product
@@ -20,6 +21,7 @@ export default function ProductCard({ product }: Props) {
             src={product.image}
             alt={product.title}
             fill
+            referrerPolicy={productImageReferrerPolicy(product.image)}
             className="object-contain p-4 transition group-hover:scale-105"
             sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
             unoptimized

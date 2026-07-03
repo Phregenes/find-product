@@ -1,11 +1,13 @@
 import { NextRequest } from 'next/server'
-import type { Condition, SortBy } from '@/lib/product'
+import type { Condition, MarketplaceMode, SortBy } from '@/lib/product'
 import { parseFilterMode } from '@/lib/monitor-filter'
+import { parseMarketplaceMode } from '@/lib/marketplace'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveSearch } from '@/lib/searches'
 import { clearMonitorSnapshot } from '@/lib/monitor-snapshot'
 import { countUserMonitors, getUserPlan } from '@/lib/plans-server'
+import { MONITOR_LIST_SELECT } from '@/lib/monitors'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,7 +26,7 @@ export async function GET() {
   const supabase = await createClient()
   const { data, error } = await supabase
     .from('monitors')
-    .select('*, searches(*)')
+    .select(MONITOR_LIST_SELECT)
     .order('created_at', { ascending: true })
   if (error) return Response.json({ error: error.message }, { status: 500 })
   return Response.json({ monitors: data ?? [] })
@@ -42,20 +44,32 @@ export async function POST(request: NextRequest) {
     ? (body.exclude_terms as string[]).map((t) => String(t).trim()).filter(Boolean)
     : []
   const emailAlertsRequested = body.email_alerts === true
+  const marketplaceMode = parseMarketplaceMode(body.marketplace_mode)
   if (!query) return Response.json({ error: 'Query obrigatória' }, { status: 400 })
 
   try {
-    const search = await resolveSearch(query, DEFAULT_SORT, condition)
     const admin = createAdminClient()
     const plan = await getUserPlan(userId)
     const emailAlerts = plan.emailAlerts && emailAlertsRequested
 
-    // Changing condition on an existing monitor does not count as a new slot.
+    let primarySearch
+    let olxSearchId: string | null = null
+
+    if (marketplaceMode === 'ml') {
+      primarySearch = await resolveSearch(query, DEFAULT_SORT, condition, 'ml')
+    } else if (marketplaceMode === 'olx') {
+      primarySearch = await resolveSearch(query, DEFAULT_SORT, condition, 'olx')
+    } else {
+      primarySearch = await resolveSearch(query, DEFAULT_SORT, condition, 'ml')
+      const olxSearch = await resolveSearch(query, DEFAULT_SORT, condition, 'olx')
+      olxSearchId = olxSearch.id
+    }
+
     const { data: existing } = await admin
       .from('monitors')
       .select('id')
       .eq('user_id', userId)
-      .eq('search_id', search.id)
+      .eq('search_id', primarySearch.id)
       .maybeSingle()
 
     if (!existing) {
@@ -78,7 +92,9 @@ export async function POST(request: NextRequest) {
       .upsert(
         {
           user_id: userId,
-          search_id: search.id,
+          search_id: primarySearch.id,
+          olx_search_id: olxSearchId,
+          marketplace_mode: marketplaceMode,
           query,
           filter_mode: filterMode,
           exclude_terms: excludeTerms,
@@ -86,7 +102,7 @@ export async function POST(request: NextRequest) {
         },
         { onConflict: 'user_id,search_id' },
       )
-      .select('*, searches(*)')
+      .select(MONITOR_LIST_SELECT)
       .single()
     if (error) throw error
     return Response.json({ monitor: data })
@@ -122,7 +138,7 @@ export async function PATCH(request: NextRequest) {
       .from('monitors')
       .update({ search_id: search.id })
       .eq('id', id)
-      .select('*, searches(*)')
+      .select(MONITOR_LIST_SELECT)
       .single()
     if (error) throw error
     return Response.json({ monitor: data })

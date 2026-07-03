@@ -1,8 +1,9 @@
 import 'server-only'
 
-import type { Browser, Page } from 'playwright-core'
+import type { Page } from 'playwright-core'
 import type { Product, SortBy, Condition } from './product'
 import { ML_PAGE_STEP } from './product'
+import { launchBrowser, createScrapeContext } from './scraper-browser'
 
 export type { Product, SortBy, Condition } from './product'
 export { ML_PAGE_STEP } from './product'
@@ -39,80 +40,6 @@ function buildQuerySlug(query: string): string {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-}
-
-function getProxy() {
-  const isServerless =
-    !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME
-  if (!isServerless) return undefined
-
-  const server = process.env.PROXY_SERVER?.trim()
-  if (!server) return undefined
-  return {
-    server,
-    username: process.env.PROXY_USERNAME?.trim() || undefined,
-    password: process.env.PROXY_PASSWORD?.trim() || undefined,
-  }
-}
-
-async function launchBrowser() {
-  const proxy = getProxy()
-  const launchArgs = [
-    '--disable-blink-features=AutomationControlled',
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-dev-shm-usage',
-  ]
-
-  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
-    const chromium = (await import('@sparticuz/chromium')).default
-    const executablePath = await chromium.executablePath()
-    const { chromium: pw } = await import('playwright-core')
-    const args = (chromium.args as string[]).filter((a) => !a.startsWith('--headless'))
-    return pw.launch({ args: [...args, ...launchArgs], executablePath, headless: true, proxy })
-  }
-
-  const { chromium } = await import('playwright')
-  return chromium.launch({ headless: true, args: launchArgs, proxy })
-}
-
-async function createScrapeContext(browser: Browser) {
-  const context = await browser.newContext({
-    userAgent:
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    locale: 'pt-BR',
-    viewport: { width: 1280, height: 720 },
-    extraHTTPHeaders: {
-      'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-      Accept:
-        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-    },
-  })
-
-  await context.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
-  })
-
-  // Keep JS enabled — ML often gates headless traffic without scripts.
-  await context.route('**/*', (route) => {
-    const type = route.request().resourceType()
-    if (type === 'image' || type === 'media' || type === 'font') {
-      return route.abort()
-    }
-    return route.continue()
-  })
-
-  await context.addCookies([
-    {
-      name: '_bm_skipml',
-      value: 'true',
-      domain: '.mercadolivre.com.br',
-      path: '/',
-      expires: Math.floor(Date.now() / 1000) + 86_400,
-    },
-  ])
-
-  return context
 }
 
 function buildSearchUrl(
@@ -273,6 +200,7 @@ async function scrapeProductsFromPage(browserPage: Page): Promise<Product[]> {
           originalPrice: origStr, originalPriceNumber: origNum,
           discount, installments, image, link, condition: cond,
           freeShipping, fullShipping, rating, seller, detectedAt: 0,
+          marketplace: 'ml',
         }
       })
       .filter((p): p is Product => p !== null && p.title !== '')
@@ -402,7 +330,8 @@ export async function scrapeSearchPages(
     }
 
     const now = Date.now()
-    const stamp = (list: Product[]) => list.map((p) => ({ ...p, detectedAt: now }))
+    const stamp = (list: Product[]) =>
+      list.map((p) => ({ ...p, detectedAt: now, marketplace: 'ml' as const }))
 
     return {
       page1: stamp(page1),

@@ -21,12 +21,14 @@ import {
   loadMonitorSnapshot,
   monitorSnapshotProducts,
 } from '@/lib/monitor-snapshot'
+import { scrapeInitialMonitorCatalog } from '@/lib/monitor-initial-scrape'
 import { getMonitorSeenIds } from '@/lib/monitor-seen'
 import { mergeWithPendingNew } from '@/lib/monitor-new'
 import { writeHeartbeat } from '@/lib/ops'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { toErrorMessage } from '@/lib/error-message'
 import { applyMonitorFilter } from '@/lib/monitor-filter-apply'
+import { OlxScrapeBlockedError } from '@/lib/olx-scraper'
 import type { Product } from '@/lib/product'
 import type { MonitorSnapshotRow } from '@/lib/monitor-snapshot'
 
@@ -70,6 +72,7 @@ function jsonProducts(
     nextUpdateInMin?: number
     outsideActiveHours?: boolean
     awaitingFirstScan?: boolean
+    initialCatalog?: boolean
     mlPageFull?: boolean
     newCount?: number
     newProductIds?: string[]
@@ -89,6 +92,7 @@ function jsonProducts(
     nextUpdateInMin: opts.nextUpdateInMin,
     outsideActiveHours: opts.outsideActiveHours,
     awaitingFirstScan: opts.awaitingFirstScan ?? false,
+    initialCatalog: opts.initialCatalog ?? false,
     newCount: opts.newCount,
     newProductIds: opts.newProductIds,
   })
@@ -151,15 +155,34 @@ export async function GET(request: NextRequest) {
     // Monitor page 1 — read-only from DB (cron writes snapshots).
     if (page === 1 && exclude.length === 0 && monitorId) {
       const now = new Date()
-      const monitor = await loadMonitorSnapshot(monitorId, userId)
+      let monitor = await loadMonitorSnapshot(monitorId, userId)
       if (!monitor) {
         return Response.json({ error: 'Monitor não encontrado' }, { status: 404 })
       }
 
       const search = await resolveSearch(q, sort, condition)
-      const awaitingFirstScan = !monitor.snapshot_at
+      let awaitingFirstScan = !monitor.snapshot_at
+      let catalog = monitorSnapshotProducts(monitor, search.id)
+      let initialCatalog = false
+
+      if (awaitingFirstScan && catalog.length === 0 && isWithinActiveHours(plan, now)) {
+        try {
+          const initial = await scrapeInitialMonitorCatalog(monitor, sort, condition)
+          catalog = initial.products
+          initialCatalog = initial.initialCatalog
+          awaitingFirstScan = catalog.length === 0
+          if (catalog.length > 0) {
+            monitor = (await loadMonitorSnapshot(monitorId, userId)) ?? monitor
+          }
+        } catch (err) {
+          if (err instanceof MlScrapeBlockedError || err instanceof OlxScrapeBlockedError) {
+            return Response.json({ error: err.message, code: err.code }, { status: 503 })
+          }
+          throw err
+        }
+      }
+
       const stale = isSnapshotDue(monitor.snapshot_at, plan, now)
-      const catalog = monitorSnapshotProducts(monitor, search.id)
       const fetchedAt = monitor.snapshot_at
         ? new Date(monitor.snapshot_at).getTime()
         : Date.now()
@@ -195,6 +218,7 @@ export async function GET(request: NextRequest) {
         nextUpdateInMin,
         outsideActiveHours: !awaitingFirstScan && !isWithinActiveHours(plan, now),
         awaitingFirstScan,
+        initialCatalog,
         mlPageFull: false,
       })
     }
@@ -250,7 +274,7 @@ export async function GET(request: NextRequest) {
       fromCache: false,
     })
   } catch (err) {
-    if (err instanceof MlScrapeBlockedError) {
+    if (err instanceof MlScrapeBlockedError || err instanceof OlxScrapeBlockedError) {
       return Response.json({ error: err.message, code: err.code }, { status: 503 })
     }
     const msg = toErrorMessage(err)

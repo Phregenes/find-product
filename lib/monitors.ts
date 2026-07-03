@@ -1,4 +1,4 @@
-import type { Condition, Product, SortBy } from './product'
+import type { Condition, MarketplaceMode, Product, SortBy } from './product'
 import type { MonitorFilterMode } from './monitor-filter'
 import { createClient } from './supabase/client'
 
@@ -8,6 +8,7 @@ export interface SearchRow {
   query_normalized: string
   sort_by: SortBy
   condition: Condition
+  marketplace?: 'ml' | 'olx'
   last_scraped_at: string | null
   created_at: string
 }
@@ -16,6 +17,8 @@ export interface MonitorRow {
   id: string
   user_id: string
   search_id: string
+  olx_search_id?: string | null
+  marketplace_mode?: MarketplaceMode
   query: string
   last_checked_at: string | null
   new_count: number
@@ -30,7 +33,12 @@ export interface MonitorRow {
 
 export interface MonitorWithSearch extends MonitorRow {
   searches: SearchRow | null
+  olx_searches?: SearchRow | null
 }
+
+/** PostgREST needs explicit FK when monitors has search_id + olx_search_id. */
+export const MONITOR_LIST_SELECT =
+  '*, searches!search_id(*), olx_searches:searches!olx_search_id(*)'
 
 export function normalizeQuery(query: string): string {
   return query.trim().toLowerCase()
@@ -41,7 +49,7 @@ export async function listMonitors(): Promise<MonitorWithSearch[]> {
   const supabase = createClient()
   const { data, error } = await supabase
     .from('monitors')
-    .select('*, searches(*)')
+    .select(MONITOR_LIST_SELECT)
     .order('created_at', { ascending: true })
   if (error) throw error
   return (data ?? []) as MonitorWithSearch[]
@@ -55,6 +63,7 @@ export async function createMonitor(
     filterMode?: MonitorFilterMode
     excludeTerms?: string[]
     emailAlerts?: boolean
+    marketplaceMode?: MarketplaceMode
   },
 ): Promise<MonitorWithSearch> {
   const res = await fetch('/api/monitors', {
@@ -66,6 +75,7 @@ export async function createMonitor(
       filter_mode: options?.filterMode ?? 'default',
       exclude_terms: options?.excludeTerms ?? [],
       email_alerts: options?.emailAlerts ?? false,
+      marketplace_mode: options?.marketplaceMode ?? 'ml',
     }),
   })
   const data = await res.json()

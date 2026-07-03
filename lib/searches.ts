@@ -1,6 +1,6 @@
 import 'server-only'
 
-import type { Condition, Product, SortBy } from './product'
+import type { Condition, Marketplace, Product, SortBy } from './product'
 import { createAdminClient } from './supabase/admin'
 import { normalizeQuery } from './monitors'
 
@@ -10,17 +10,18 @@ export interface SearchRecord {
   query_normalized: string
   sort_by: SortBy
   condition: Condition
+  marketplace: Marketplace
   last_scraped_at: string | null
 }
 
 /**
- * Find or create the shared search row for a (query, sort, condition) tuple.
- * Shared across all users so a single scrape can serve everyone monitoring it.
+ * Find or create the shared search row for a (query, sort, condition, marketplace) tuple.
  */
 export async function resolveSearch(
   query: string,
   sortBy: SortBy,
   condition: Condition,
+  marketplace: Marketplace = 'ml',
 ): Promise<SearchRecord> {
   const admin = createAdminClient()
   const query_normalized = normalizeQuery(query)
@@ -31,23 +32,24 @@ export async function resolveSearch(
     .eq('query_normalized', query_normalized)
     .eq('sort_by', sortBy)
     .eq('condition', condition)
+    .eq('marketplace', marketplace)
     .maybeSingle()
   if (selErr) throw selErr
   if (existing) return existing as SearchRecord
 
   const { data: created, error: insErr } = await admin
     .from('searches')
-    .insert({ query, query_normalized, sort_by: sortBy, condition })
+    .insert({ query, query_normalized, sort_by: sortBy, condition, marketplace })
     .select('*')
     .single()
   if (insErr) {
-    // Race: another request created it first — fetch again.
     const { data: retry } = await admin
       .from('searches')
       .select('*')
       .eq('query_normalized', query_normalized)
       .eq('sort_by', sortBy)
       .eq('condition', condition)
+      .eq('marketplace', marketplace)
       .single()
     if (retry) return retry as SearchRecord
     throw insErr

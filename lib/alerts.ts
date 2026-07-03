@@ -39,6 +39,98 @@ interface MonitorRow {
   email_alerts: boolean
 }
 
+/** Sync one monitor catalog (ML, OLX, or merged) after scrape. */
+export async function processSingleMonitorAlert(
+  monitor: MonitorRow,
+  allProducts: Product[],
+  snapshotSearchId: string,
+  profile: { email: string | null; emailAlerts: boolean; plan: string },
+  now = new Date(),
+): Promise<MonitorAlertResult> {
+  const admin = createAdminClient()
+  const monitorId = monitor.id
+  const query = monitor.query
+  const plan = getPlanConfig(profile.plan)
+
+  if (!isSnapshotDue(monitor.snapshot_at, plan, now)) {
+    return { monitorId, query, newCount: 0, emailed: false, skipped: true }
+  }
+
+  if (!isWithinActiveHours(plan, now)) {
+    return { monitorId, query, newCount: 0, emailed: false, skipped: true }
+  }
+
+  const { data: seenRows, error: sErr } = await admin
+    .from('monitor_seen_products')
+    .select('product_id')
+    .eq('monitor_id', monitorId)
+  if (sErr) throw sErr
+
+  const seen = new Set((seenRows ?? []).map((r) => r.product_id as string))
+  const monitorProducts = applyMonitorFilter(allProducts, monitor)
+  const discovered = monitorProducts.filter((p) => !seen.has(p.id))
+
+  await saveMonitorSnapshot(monitorId, monitorProducts, snapshotSearchId)
+
+  if (seen.size === 0 && monitorProducts.length > 0) {
+    await baselineMonitorSeen(monitorId, monitorProducts.map((p) => p.id))
+    await admin.from('monitors').update({ new_count: 0 }).eq('id', monitorId)
+    return { monitorId, query, newCount: 0, emailed: false, baselined: true }
+  }
+
+  const scannedIds = new Set(monitorProducts.map((p) => p.id))
+  await syncPendingNewProducts(monitorId, discovered)
+  const pending = await prunePendingNewProducts(monitorId, scannedIds)
+
+  const newProducts = pending
+  const newCount = pending.length
+  const newProductIds = pending.map((p) => p.id)
+  const lastNotifiedIds = monitor.last_notified_item_ids ?? []
+
+  await admin.from('monitors').update({ new_count: newCount }).eq('id', monitorId)
+
+  let emailed = false
+  let emailError: string | undefined
+  let emailSkippedDuplicate = false
+
+  const canEmail =
+    newCount > 0
+    && profile.email
+    && profile.emailAlerts
+    && plan.emailAlerts
+    && monitor.email_alerts !== false
+
+  if (canEmail) {
+    if (!hasItemsNotYetNotified(newProductIds, lastNotifiedIds)) {
+      emailSkippedDuplicate = true
+    } else {
+      const toNotify = filterNotYetNotified(newProducts, lastNotifiedIds)
+      const send = await sendNewProductsEmail({
+        to: profile.email!,
+        monitorQuery: query,
+        products: toNotify,
+      })
+      emailed = send.ok
+      if (!send.ok) emailError = send.error
+      else {
+        await admin
+          .from('monitors')
+          .update({ last_notified_item_ids: newProductIds })
+          .eq('id', monitorId)
+      }
+    }
+  }
+
+  return {
+    monitorId,
+    query,
+    newCount,
+    emailed,
+    emailError,
+    emailSkippedDuplicate: emailSkippedDuplicate || undefined,
+  }
+}
+
 /** Update snapshots, counts and emails — only for monitors due on their plan interval. */
 export async function processMonitorAlerts(
   searchId: string,
@@ -75,95 +167,16 @@ export async function processMonitorAlerts(
 
 
   for (const monitor of monitors as MonitorRow[]) {
-    const monitorId = monitor.id
-    const userId = monitor.user_id
-    const query = monitor.query
-    const profile = profileById.get(userId)
-
+    const profile = profileById.get(monitor.user_id)
     if (!profile) continue
-
-    const plan = getPlanConfig(profile.plan)
-
-    if (!isSnapshotDue(monitor.snapshot_at, plan, now)) {
-      results.push({ monitorId, query, newCount: 0, emailed: false, skipped: true })
-      continue
-    }
-
-    if (!isWithinActiveHours(plan, now)) {
-      results.push({ monitorId, query, newCount: 0, emailed: false, skipped: true })
-      continue
-    }
-
-    const { data: seenRows, error: sErr } = await admin
-      .from('monitor_seen_products')
-      .select('product_id')
-      .eq('monitor_id', monitorId)
-    if (sErr) throw sErr
-
-    const seen = new Set((seenRows ?? []).map((r) => r.product_id as string))
-    const monitorProducts = applyMonitorFilter(allProducts, monitor)
-    const discovered = monitorProducts.filter((p) => !seen.has(p.id))
-
-    await saveMonitorSnapshot(monitorId, monitorProducts, searchId)
-
-    if (seen.size === 0 && monitorProducts.length > 0) {
-      await baselineMonitorSeen(monitorId, monitorProducts.map((p) => p.id))
-      await admin.from('monitors').update({ new_count: 0 }).eq('id', monitorId)
-      results.push({ monitorId, query, newCount: 0, emailed: false, baselined: true })
-      continue
-    }
-
-    const scannedIds = new Set(monitorProducts.map((p) => p.id))
-    await syncPendingNewProducts(monitorId, discovered)
-    const pending = await prunePendingNewProducts(monitorId, scannedIds)
-
-    const newProducts = pending
-    const newCount = pending.length
-    const newProductIds = pending.map((p) => p.id)
-    const lastNotifiedIds = monitor.last_notified_item_ids ?? []
-
-    await admin.from('monitors').update({ new_count: newCount }).eq('id', monitorId)
-
-    let emailed = false
-    let emailError: string | undefined
-    let emailSkippedDuplicate = false
-
-    const canEmail =
-      newCount > 0
-      && profile.email
-      && profile.emailAlerts
-      && plan.emailAlerts
-      && monitor.email_alerts !== false
-
-    if (canEmail) {
-      if (!hasItemsNotYetNotified(newProductIds, lastNotifiedIds)) {
-        emailSkippedDuplicate = true
-      } else {
-        const toNotify = filterNotYetNotified(newProducts, lastNotifiedIds)
-        const send = await sendNewProductsEmail({
-          to: profile.email!,
-          monitorQuery: query,
-          products: toNotify,
-        })
-        emailed = send.ok
-        if (!send.ok) emailError = send.error
-        else {
-          await admin
-            .from('monitors')
-            .update({ last_notified_item_ids: newProductIds })
-            .eq('id', monitorId)
-        }
-      }
-    }
-
-    results.push({
-      monitorId,
-      query,
-      newCount,
-      emailed,
-      emailError,
-      emailSkippedDuplicate: emailSkippedDuplicate || undefined,
-    })
+    const result = await processSingleMonitorAlert(
+      monitor,
+      allProducts,
+      searchId,
+      profile,
+      now,
+    )
+    results.push(result)
   }
 
   return results

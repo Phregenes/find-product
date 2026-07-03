@@ -1,12 +1,13 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import type { Condition } from '@/lib/product'
+import type { Condition, MarketplaceMode } from '@/lib/product'
 import {
   FILTER_MODE_OPTIONS,
   type MonitorFilterMode,
   parseExcludeTermsInput,
 } from '@/lib/monitor-filter'
+import { MARKETPLACE_MODE_OPTIONS } from '@/lib/marketplace'
 
 export interface CreateMonitorOptions {
   query: string
@@ -14,6 +15,7 @@ export interface CreateMonitorOptions {
   filterMode: MonitorFilterMode
   excludeTerms: string[]
   emailAlerts: boolean
+  marketplaceMode: MarketplaceMode
 }
 
 interface CreateMonitorModalProps {
@@ -40,6 +42,7 @@ export default function CreateMonitorModal({
   const [query, setQuery] = useState(initialQuery)
   const [condition, setCondition] = useState<Condition>('all')
   const [filterMode, setFilterMode] = useState<MonitorFilterMode>('default')
+  const [marketplaceMode, setMarketplaceMode] = useState<MarketplaceMode>('both')
   const [excludeInput, setExcludeInput] = useState('')
   const [emailAlerts, setEmailAlerts] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -49,6 +52,7 @@ export default function CreateMonitorModal({
       setQuery(initialQuery)
       setCondition('all')
       setFilterMode('default')
+      setMarketplaceMode('both')
       setExcludeInput('')
       setEmailAlerts(false)
       setSubmitting(false)
@@ -78,6 +82,7 @@ export default function CreateMonitorModal({
         filterMode,
         excludeTerms: parseExcludeTermsInput(excludeInput),
         emailAlerts: planEmailAlerts && emailAlerts,
+        marketplaceMode,
       })
     } finally {
       setSubmitting(false)
@@ -116,7 +121,7 @@ export default function CreateMonitorModal({
               Novo monitor
             </h2>
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-              Busca no Mercado Livre e avisa quando surgir anúncio novo.
+              Busca no Mercado Livre e/ou OLX e avisa quando surgir anúncio novo.
             </p>
           </div>
 
@@ -132,6 +137,41 @@ export default function CreateMonitorModal({
                 className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm outline-none transition focus:border-yellow-400 focus:ring-2 focus:ring-yellow-400/30 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
               />
             </label>
+
+            <fieldset className="flex flex-col gap-2">
+              <legend className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                Onde buscar
+              </legend>
+              <div className="flex flex-col gap-2">
+                {MARKETPLACE_MODE_OPTIONS.map((option) => (
+                  <label
+                    key={option.id}
+                    className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${
+                      marketplaceMode === option.id
+                        ? 'border-orange-400 bg-orange-50/50 ring-1 ring-orange-400/30 dark:border-orange-500/50 dark:bg-orange-950/20'
+                        : 'border-zinc-200 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800/50'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="marketplaceMode"
+                      value={option.id}
+                      checked={marketplaceMode === option.id}
+                      onChange={() => setMarketplaceMode(option.id)}
+                      className="mt-0.5 h-4 w-4 border-zinc-300 text-orange-500 focus:ring-orange-400"
+                    />
+                    <span className="flex flex-col gap-0.5">
+                      <span className="text-sm font-medium text-zinc-900 dark:text-white">
+                        {option.label}
+                      </span>
+                      <span className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+                        {option.description}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
 
             <div className="flex flex-col gap-1.5">
               <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Condição</span>
