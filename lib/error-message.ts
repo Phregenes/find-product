@@ -14,3 +14,21 @@ export function toErrorMessage(err: unknown): string {
   }
   return String(err)
 }
+
+export function isBrowserClosedError(err: unknown): boolean {
+  const msg = toErrorMessage(err).toLowerCase()
+  return msg.includes('target page, context or browser has been closed')
+    || msg.includes('browser has been closed')
+}
+
+/** User-facing scrape errors (cron / status). */
+export function formatScrapeError(err: unknown): string {
+  const msg = toErrorMessage(err)
+  if (isBrowserClosedError(err)) {
+    return 'O Chrome do scrape foi encerrado no servidor (memória ou tempo limite na Vercel). O próximo cron tenta de novo.'
+  }
+  if (/timeout.*exceeded/i.test(msg) || msg.includes('Timeout')) {
+    return 'Tempo esgotado ao carregar a página do marketplace.'
+  }
+  return msg.length > 280 ? `${msg.slice(0, 277)}…` : msg
+}

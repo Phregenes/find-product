@@ -1,15 +1,18 @@
 import 'server-only'
 
-import type { Page } from 'playwright-core'
+import type { Browser, Page } from 'playwright-core'
 import type { Product, SortBy, Condition } from './product'
 import { ML_PAGE_STEP } from './product'
 import { launchBrowser, createScrapeContext } from './scraper-browser'
+import { isBrowserClosedError } from './error-message'
+import {
+  getMonitorScrapeMaxPages,
+  isServerlessScrape,
+} from './scrape-limits'
 
 export type { Product, SortBy, Condition } from './product'
 export { ML_PAGE_STEP } from './product'
-
-/** ML pages scanned per cron run for each search. */
-export const MONITOR_SCRAPE_MAX_PAGES = 8
+export { MONITOR_SCRAPE_MAX_PAGES, getMonitorScrapeMaxPages } from './scrape-limits'
 
 export interface SearchResult {
   products: Product[]
@@ -79,14 +82,21 @@ async function countResultItems(browserPage: Page): Promise<number> {
 }
 
 async function scrollResultsGrid(browserPage: Page): Promise<void> {
-  await browserPage.evaluate(async () => {
+  const lite = isServerlessScrape()
+  await browserPage.evaluate(async (liteScroll: boolean) => {
+    if (liteScroll) {
+      window.scrollTo(0, Math.min(document.body.scrollHeight, window.innerHeight * 2))
+      await new Promise((r) => setTimeout(r, 120))
+      window.scrollTo(0, 0)
+      return
+    }
     const step = Math.max(window.innerHeight, 600)
     for (let y = 0; y < document.body.scrollHeight; y += step) {
       window.scrollTo(0, y)
       await new Promise((r) => setTimeout(r, 200))
     }
     window.scrollTo(0, 0)
-  })
+  }, lite)
 }
 
 async function scrapeProductsFromPage(browserPage: Page): Promise<Product[]> {
@@ -291,55 +301,83 @@ export async function scrapeSearchPages(
   query: string,
   sortBy: SortBy = 'relevance',
   condition: Condition = 'all',
-  maxPages = 8,
+  maxPages = getMonitorScrapeMaxPages(),
   startPage = 1,
+  browser?: Browser,
 ): Promise<{ page1: Product[]; allPages: Product[]; hasMore: boolean }> {
-  const browser = await launchBrowser()
+  try {
+    return await scrapeSearchPagesOnce(query, sortBy, condition, maxPages, startPage, browser)
+  } catch (err) {
+    if (!isBrowserClosedError(err)) throw err
+    if (maxPages <= 1) throw err
+    try {
+      return await scrapeSearchPagesOnce(query, sortBy, condition, 1, startPage, browser)
+    } catch (retryErr) {
+      if (!isBrowserClosedError(retryErr) || browser) throw retryErr
+      return scrapeSearchPagesOnce(query, sortBy, condition, 1, startPage)
+    }
+  }
+}
+
+async function scrapeSearchPagesOnce(
+  query: string,
+  sortBy: SortBy,
+  condition: Condition,
+  maxPages: number,
+  startPage: number,
+  sharedBrowser?: Browser,
+): Promise<{ page1: Product[]; allPages: Product[]; hasMore: boolean }> {
+  const ownsBrowser = !sharedBrowser
+  const browser = sharedBrowser ?? (await launchBrowser())
 
   try {
     const context = await createScrapeContext(browser)
-    const browserPage = await context.newPage()
-    const allPages: Product[] = []
-    const seen = new Set<string>()
-    let page1: Product[] = []
-    let hasMore = false
-    let sortUsed = sortBy
+    try {
+      const browserPage = await context.newPage()
+      const allPages: Product[] = []
+      const seen = new Set<string>()
+      let page1: Product[] = []
+      let hasMore = false
+      let sortUsed = sortBy
 
-    for (let attempt = 0; attempt < maxPages; attempt++) {
-      const pageNum = startPage + attempt
-      const { products, sortUsed: used } = await loadSearchPageWithFallback(
-        browserPage,
-        query,
-        sortUsed,
-        pageNum,
-        condition,
-      )
-      sortUsed = used
+      for (let attempt = 0; attempt < maxPages; attempt++) {
+        const pageNum = startPage + attempt
+        const { products, sortUsed: used } = await loadSearchPageWithFallback(
+          browserPage,
+          query,
+          sortUsed,
+          pageNum,
+          condition,
+        )
+        sortUsed = used
 
-      hasMore = products.length >= ML_PAGE_STEP
-      if (pageNum === startPage) page1 = products
+        hasMore = products.length >= ML_PAGE_STEP
+        if (pageNum === startPage) page1 = products
 
-      for (const p of products) {
-        if (!seen.has(p.id)) {
-          seen.add(p.id)
-          allPages.push(p)
+        for (const p of products) {
+          if (!seen.has(p.id)) {
+            seen.add(p.id)
+            allPages.push(p)
+          }
         }
+
+        if (!hasMore) break
       }
 
-      if (!hasMore) break
-    }
+      const now = Date.now()
+      const stamp = (list: Product[]) =>
+        list.map((p) => ({ ...p, detectedAt: now, marketplace: 'ml' as const }))
 
-    const now = Date.now()
-    const stamp = (list: Product[]) =>
-      list.map((p) => ({ ...p, detectedAt: now, marketplace: 'ml' as const }))
-
-    return {
-      page1: stamp(page1),
-      allPages: stamp(allPages),
-      hasMore,
+      return {
+        page1: stamp(page1),
+        allPages: stamp(allPages),
+        hasMore,
+      }
+    } finally {
+      await context.close()
     }
   } finally {
-    await browser.close()
+    if (ownsBrowser) await browser.close()
   }
 }
 

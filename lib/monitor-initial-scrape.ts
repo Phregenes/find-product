@@ -8,6 +8,7 @@ import { writeCache } from '@/lib/searches'
 import { saveMonitorSnapshot } from '@/lib/monitor-snapshot'
 import { baselineFirstVisitIfNeeded } from '@/lib/monitor-seen'
 import { writeHeartbeat } from '@/lib/ops'
+import { launchBrowser } from '@/lib/scraper-browser'
 
 export interface InitialScrapeMonitor {
   id: string
@@ -29,6 +30,10 @@ export async function scrapeInitialMonitorCatalog(
   const merged: Product[] = []
   const seen = new Set<string>()
 
+  const needsMl = mode === 'ml' || mode === 'both'
+  const needsOlx = mode === 'olx' || (mode === 'both' && monitor.olx_search_id)
+  const browser = needsMl || needsOlx ? await launchBrowser() : null
+
   async function addPage(
     marketplace: 'ml' | 'olx',
     searchId: string,
@@ -39,7 +44,7 @@ export async function scrapeInitialMonitorCatalog(
         monitor.query,
         sort,
         condition,
-        1,
+        { maxPages: 1, browser: browser ?? undefined },
       )
       if (page1.length > 0) await writeCache(searchId, 1, page1)
       for (const p of page1) {
@@ -64,26 +69,30 @@ export async function scrapeInitialMonitorCatalog(
 
   const errors: Error[] = []
 
-  if (mode === 'ml' || mode === 'both') {
-    try {
-      await addPage('ml', monitor.search_id)
-    } catch (err) {
-      errors.push(err as Error)
+  try {
+    if (mode === 'ml' || mode === 'both') {
+      try {
+        await addPage('ml', monitor.search_id)
+      } catch (err) {
+        errors.push(err as Error)
+      }
     }
-  }
 
-  if (mode === 'olx') {
-    try {
-      await addPage('olx', monitor.search_id)
-    } catch (err) {
-      errors.push(err as Error)
+    if (mode === 'olx') {
+      try {
+        await addPage('olx', monitor.search_id)
+      } catch (err) {
+        errors.push(err as Error)
+      }
+    } else if (mode === 'both' && monitor.olx_search_id) {
+      try {
+        await addPage('olx', monitor.olx_search_id)
+      } catch (err) {
+        errors.push(err as Error)
+      }
     }
-  } else if (mode === 'both' && monitor.olx_search_id) {
-    try {
-      await addPage('olx', monitor.olx_search_id)
-    } catch (err) {
-      errors.push(err as Error)
-    }
+  } finally {
+    await browser?.close().catch(() => {})
   }
 
   if (merged.length === 0 && errors.length > 0) {

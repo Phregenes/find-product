@@ -1,20 +1,28 @@
 import 'server-only'
 
+import type { Browser } from 'playwright-core'
 import type { Condition, Marketplace, Product, SortBy } from './product'
-import { scrapeSearchPages, MONITOR_SCRAPE_MAX_PAGES } from './scraper'
-import { scrapeOlxSearchPages, OLX_SCRAPE_MAX_PAGES } from './olx-scraper'
+import { scrapeSearchPages } from './scraper'
+import { scrapeOlxSearchPages } from './olx-scraper'
+import { getMonitorScrapeMaxPages, getOlxScrapeMaxPages } from './scrape-limits'
+
+export interface ScrapeMarketplaceOptions {
+  maxPages?: number
+  browser?: Browser
+}
 
 export async function scrapeMarketplacePages(
   marketplace: Marketplace,
   query: string,
   sortBy: SortBy,
   condition: Condition,
-  maxPages?: number,
+  opts?: ScrapeMarketplaceOptions,
 ): Promise<{ page1: Product[]; allPages: Product[]; hasMore: boolean }> {
+  const browser = opts?.browser
   if (marketplace === 'olx') {
-    const pages = maxPages ?? OLX_SCRAPE_MAX_PAGES
-    return scrapeOlxSearchPages(query, sortBy, pages, 1)
+    const pages = opts?.maxPages ?? getOlxScrapeMaxPages()
+    return scrapeOlxSearchPages(query, sortBy, pages, 1, browser)
   }
-  const pages = maxPages ?? MONITOR_SCRAPE_MAX_PAGES
-  return scrapeSearchPages(query, sortBy, condition, pages, 1)
+  const pages = opts?.maxPages ?? getMonitorScrapeMaxPages()
+  return scrapeSearchPages(query, sortBy, condition, pages, 1, browser)
 }

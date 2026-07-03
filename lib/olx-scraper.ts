@@ -1,11 +1,16 @@
 import 'server-only'
 
-import type { Page } from 'playwright-core'
+import type { Browser, Page } from 'playwright-core'
 import type { Product, SortBy } from './product'
 import { OLX_PAGE_STEP } from './product'
 import { launchBrowser, createScrapeContext } from './scraper-browser'
+import { isBrowserClosedError } from './error-message'
+import {
+  getOlxScrapeMaxPages,
+  isServerlessScrape,
+} from './scrape-limits'
 
-export const OLX_SCRAPE_MAX_PAGES = 8
+export { OLX_SCRAPE_MAX_PAGES, getOlxScrapeMaxPages } from './scrape-limits'
 
 export class OlxScrapeBlockedError extends Error {
   readonly code = 'OLX_BLOCKED' as const
@@ -169,14 +174,21 @@ async function scrapeOlxFromPage(page: Page): Promise<Product[]> {
 }
 
 async function scrollOlxResults(page: Page): Promise<void> {
-  await page.evaluate(async () => {
+  const lite = isServerlessScrape()
+  await page.evaluate(async (liteScroll: boolean) => {
+    if (liteScroll) {
+      window.scrollTo(0, Math.min(document.body.scrollHeight, window.innerHeight * 2))
+      await new Promise((r) => setTimeout(r, 100))
+      window.scrollTo(0, 0)
+      return
+    }
     const step = 400
     for (let y = 0; y < document.body.scrollHeight; y += step) {
       window.scrollTo(0, y)
       await new Promise((r) => setTimeout(r, 80))
     }
     window.scrollTo(0, 0)
-  })
+  }, lite)
 }
 
 async function loadOlxPage(page: Page, url: string): Promise<Product[]> {
@@ -208,45 +220,72 @@ async function loadOlxPage(page: Page, url: string): Promise<Product[]> {
 export async function scrapeOlxSearchPages(
   query: string,
   sortBy: SortBy = 'relevance',
-  maxPages = OLX_SCRAPE_MAX_PAGES,
+  maxPages = getOlxScrapeMaxPages(),
   startPage = 1,
+  sharedBrowser?: Browser,
 ): Promise<{ page1: Product[]; allPages: Product[]; hasMore: boolean }> {
-  const browser = await launchBrowser()
+  try {
+    return await scrapeOlxSearchPagesOnce(query, sortBy, maxPages, startPage, sharedBrowser)
+  } catch (err) {
+    if (!isBrowserClosedError(err)) throw err
+    if (maxPages <= 1) throw err
+    try {
+      return await scrapeOlxSearchPagesOnce(query, sortBy, 1, startPage, sharedBrowser)
+    } catch (retryErr) {
+      if (!isBrowserClosedError(retryErr) || sharedBrowser) throw retryErr
+      return scrapeOlxSearchPagesOnce(query, sortBy, 1, startPage)
+    }
+  }
+}
+
+async function scrapeOlxSearchPagesOnce(
+  query: string,
+  sortBy: SortBy,
+  maxPages: number,
+  startPage: number,
+  sharedBrowser?: Browser,
+): Promise<{ page1: Product[]; allPages: Product[]; hasMore: boolean }> {
+  const ownsBrowser = !sharedBrowser
+  const browser = sharedBrowser ?? (await launchBrowser())
 
   try {
     const context = await createScrapeContext(browser, { blockImages: false })
-    const browserPage = await context.newPage()
-    const allPages: Product[] = []
-    const seen = new Set<string>()
-    let page1: Product[] = []
-    let hasMore = false
+    try {
+      const browserPage = await context.newPage()
+      const allPages: Product[] = []
+      const seen = new Set<string>()
+      let page1: Product[] = []
+      let hasMore = false
 
-    for (let attempt = 0; attempt < maxPages; attempt++) {
-      const pageNum = startPage + attempt
-      const products = await loadOlxPage(browserPage, buildOlxSearchUrl(query, sortBy, pageNum))
-      hasMore = products.length >= OLX_PAGE_STEP
-      if (pageNum === startPage) page1 = products
+      for (let attempt = 0; attempt < maxPages; attempt++) {
+        const pageNum = startPage + attempt
+        const products = await loadOlxPage(browserPage, buildOlxSearchUrl(query, sortBy, pageNum))
+        hasMore = products.length >= OLX_PAGE_STEP
+        if (pageNum === startPage) page1 = products
 
-      for (const p of products) {
-        if (!seen.has(p.id)) {
-          seen.add(p.id)
-          allPages.push(p)
+        for (const p of products) {
+          if (!seen.has(p.id)) {
+            seen.add(p.id)
+            allPages.push(p)
+          }
         }
+
+        if (!hasMore) break
       }
 
-      if (!hasMore) break
-    }
+      const now = Date.now()
+      const stamp = (list: Product[]) =>
+        list.map((p) => ({ ...p, detectedAt: now, marketplace: 'olx' as const }))
 
-    const now = Date.now()
-    const stamp = (list: Product[]) =>
-      list.map((p) => ({ ...p, detectedAt: now, marketplace: 'olx' as const }))
-
-    return {
-      page1: stamp(page1),
-      allPages: stamp(allPages),
-      hasMore,
+      return {
+        page1: stamp(page1),
+        allPages: stamp(allPages),
+        hasMore,
+      }
+    } finally {
+      await context.close()
     }
   } finally {
-    await browser.close()
+    if (ownsBrowser) await browser.close()
   }
 }

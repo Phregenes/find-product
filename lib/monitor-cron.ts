@@ -1,5 +1,6 @@
 import 'server-only'
 
+import type { Browser } from 'playwright-core'
 import type { Condition, Marketplace, MarketplaceMode, Product, SortBy } from '@/lib/product'
 import type { PlanConfig, PlanId } from '@/lib/plans'
 import { getPlanConfig, isSnapshotDue, isWithinActiveHours } from '@/lib/plans'
@@ -9,6 +10,8 @@ import { scrapeMarketplacePages } from '@/lib/marketplace-scrape'
 import { processSingleMonitorAlert, type MonitorAlertResult } from '@/lib/alerts'
 import { writeHeartbeat } from '@/lib/ops'
 import type { MonitorFilterMode } from '@/lib/monitor-filter'
+import { formatScrapeError, isBrowserClosedError } from '@/lib/error-message'
+import { launchBrowser } from '@/lib/scraper-browser'
 
 interface SearchRow {
   id: string
@@ -59,12 +62,14 @@ export interface CronRunResult {
 
 async function scrapeSearchIfNeeded(
   search: SearchRow,
+  browser: Browser,
 ): Promise<Product[]> {
   const scraped = await scrapeMarketplacePages(
     search.marketplace,
     search.query,
     search.sort_by,
     search.condition,
+    { browser },
   )
 
   if (scraped.page1.length > 0) {
@@ -170,19 +175,41 @@ export async function runMonitorCron(now = new Date()): Promise<CronRunResult> {
   const scrapedBySearch = new Map<string, Product[]>()
   const scrapeErrors = new Map<string, string>()
 
-  for (const searchId of searchesToScrape) {
-    const search = searchById.get(searchId)
-    if (!search) continue
+  let scrapeBrowser =
+    searchesToScrape.size > 0 ? await launchBrowser() : null
 
-    try {
-      const products = await scrapeSearchIfNeeded(search)
-      scrapedBySearch.set(searchId, products)
-    } catch (err) {
-      const msg = (err as Error).message
-      scrapeErrors.set(searchId, msg)
-      const tag = search.marketplace === 'olx' ? 'olx_scrape' : 'ml_scrape'
-      await writeHeartbeat(tag, 'error', msg.slice(0, 500)).catch(() => {})
+  try {
+    for (const searchId of searchesToScrape) {
+      const search = searchById.get(searchId)
+      if (!search || !scrapeBrowser) continue
+
+      try {
+        const products = await scrapeSearchIfNeeded(search, scrapeBrowser)
+        scrapedBySearch.set(searchId, products)
+      } catch (err) {
+        if (isBrowserClosedError(err)) {
+          await scrapeBrowser.close().catch(() => {})
+          scrapeBrowser = await launchBrowser()
+          try {
+            const products = await scrapeSearchIfNeeded(search, scrapeBrowser)
+            scrapedBySearch.set(searchId, products)
+            continue
+          } catch (retryErr) {
+            const msg = formatScrapeError(retryErr)
+            scrapeErrors.set(searchId, msg)
+            const tag = search.marketplace === 'olx' ? 'olx_scrape' : 'ml_scrape'
+            await writeHeartbeat(tag, 'error', msg.slice(0, 500)).catch(() => {})
+            continue
+          }
+        }
+        const msg = formatScrapeError(err)
+        scrapeErrors.set(searchId, msg)
+        const tag = search.marketplace === 'olx' ? 'olx_scrape' : 'ml_scrape'
+        await writeHeartbeat(tag, 'error', msg.slice(0, 500)).catch(() => {})
+      }
     }
+  } finally {
+    await scrapeBrowser?.close().catch(() => {})
   }
 
   const results: CronRunResult['results'] = []
@@ -264,6 +291,9 @@ export async function runMonitorCron(now = new Date()): Promise<CronRunResult> {
   const skipped = results.filter((r) => r.skipped).length
   const emailsSent = alertResults.filter((a) => a.emailed).length
   const errors = results.filter((r) => r.error).length
+  const failedMonitors = results
+    .filter((r) => r.error)
+    .map((r) => ({ query: r.query, error: r.error, marketplaceMode: r.marketplaceMode }))
 
   await writeHeartbeat(
     'cron_scrape',
@@ -271,7 +301,7 @@ export async function runMonitorCron(now = new Date()): Promise<CronRunResult> {
     errors > 0
       ? `${errors} monitor(es) com erro na última execução`
       : `Executado: ${ran} monitor(es), ${skipped} ignorado(s)`,
-    { ran, skipped, emailsSent, errors, total: monitors.length },
+    { ran, skipped, emailsSent, errors, total: monitors.length, failedMonitors },
   )
 
   return {

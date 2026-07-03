@@ -20,6 +20,17 @@ const CONDITION_LABELS: Record<Condition, string> = {
   used: 'Usado',
 }
 
+function formatCreatedAt(iso: string | undefined): string {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 interface MonitorDetailsModalProps {
   monitor: MonitorWithSearch | null
   planEmailAlerts?: boolean
@@ -156,6 +167,10 @@ export default function MonitorDetailsModal({
                   ? 'Ativado — avisa só anúncios novos desde a última varredura'
                   : 'Desativado'}
             </DetailValue>
+          </DetailField>
+
+          <DetailField label="Criado em">
+            <DetailValue>{formatCreatedAt(monitor.created_at)}</DetailValue>
           </DetailField>
         </div>
 

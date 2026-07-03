@@ -158,11 +158,34 @@ export async function runStatusChecks(): Promise<StatusReport> {
   if (cron) {
     cronUpdatedAt = cron.updated_at
     const age = ageMinutes(cron.updated_at, now)!
-    const meta = cron.metadata as { ran?: number; skipped?: number; emailsSent?: number; errors?: number }
+    const meta = cron.metadata as {
+      ran?: number
+      skipped?: number
+      emailsSent?: number
+      errors?: number
+      failedMonitors?: Array<{ query: string; error: string }>
+    }
 
     if (cron.status === 'error') {
       cronStatus = 'error'
-      cronMessage = cron.message ?? 'Última execução com erro'
+      const failed = meta.failedMonitors ?? []
+      if (failed.length > 0) {
+        const summary = failed
+          .slice(0, 3)
+          .map((f) => `“${f.query}”: ${f.error}`)
+          .join(' · ')
+        cronMessage = failed.length > 3 ? `${summary} · +${failed.length - 3}` : summary
+      } else {
+        const mlErr = heartbeats.get('ml_scrape')
+        const olxErr = heartbeats.get('olx_scrape')
+        const scrapeErr =
+          mlErr?.status === 'error' && ageMinutes(mlErr.updated_at, now)! < 15
+            ? mlErr.message
+            : olxErr?.status === 'error' && ageMinutes(olxErr.updated_at, now)! < 15
+              ? olxErr.message
+              : null
+        cronMessage = scrapeErr ?? cron.message ?? 'Última execução com erro'
+      }
     } else if (age > 30 * 60) {
       cronStatus = age > 48 * 60 ? 'error' : 'degraded'
       cronMessage = `Última execução ${formatAge(age)}`
