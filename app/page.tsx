@@ -73,7 +73,7 @@ export default function HomePage() {
             />
             <Feature
               title="Varredura profunda"
-              description="Nos planos pagos, o cron varre várias páginas por monitor para não deixar oportunidade passar."
+              description="Nos planos pagos, o cron varre até 2–3 páginas por monitor — o suficiente para pegar novidades sem estourar banda."
               icon={
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
               }

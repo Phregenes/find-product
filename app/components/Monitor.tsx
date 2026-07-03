@@ -20,7 +20,7 @@ import type { Marketplace } from '@/lib/product'
 import { createClient } from '@/lib/supabase/client'
 import type { Product } from '@/lib/product'
 import type { PlanConfig } from '@/lib/plans'
-import { formatRefreshMinutes } from '@/lib/plans'
+import { formatCheckInterval, formatRefreshMinutes } from '@/lib/plans'
 
 interface PlanUsage {
   plan: PlanConfig
@@ -863,7 +863,7 @@ export default function MonitorApp() {
               </button>
 
               <span className="ml-auto text-[11px] text-zinc-400 sm:hidden">
-                Cron a cada {formatRefreshMinutes(planUsage?.plan.checkIntervalMinutes ?? intervalMin)}
+                Cron {formatCheckInterval(planUsage?.plan.checkIntervalMinutes ?? intervalMin)}
               </span>
             </div>
           </div>
@@ -888,7 +888,7 @@ export default function MonitorApp() {
             <p>
               <strong>{viewState.products.length} anúncios</strong> da primeira página (ML e/ou OLX).
               O cron completa com mais páginas em até{' '}
-              {formatRefreshMinutes(planUsage?.plan.checkIntervalMinutes ?? 1440)} — depois destacamos só o que for{' '}
+              {formatCheckInterval(planUsage?.plan.checkIntervalMinutes ?? 1440)} — depois destacamos só o que for{' '}
               <strong>novo</strong>.
             </p>
           </div>
@@ -917,7 +917,7 @@ export default function MonitorApp() {
                 </p>
                 <p className="max-w-sm text-xs text-zinc-500 dark:text-zinc-400">
                   Não foi possível buscar agora (ML/OLX podem bloquear scrape automático).
-                  O cron tenta de novo a cada {formatRefreshMinutes(planUsage?.plan.checkIntervalMinutes ?? 1440)}.
+                  O cron tenta de novo {formatCheckInterval(planUsage?.plan.checkIntervalMinutes ?? 1440)}.
                 </p>
                 <button
                   onClick={() => fetchProducts(activeMonitor, { force: true })}

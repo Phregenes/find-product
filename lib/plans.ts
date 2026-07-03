@@ -9,7 +9,7 @@
  *
  * New signups get `free`. Paid tiers: garimpo, lojista, pro.
  * Per-user plan is stored in `profiles.plan` (Supabase).
- * Vercel Hobby cron runs once daily (11:00 UTC = 8h BRT); Pro can use every-5-min schedule.
+ * Cron is triggered externally (e.g. cron-job.org); each monitor is scraped per checkIntervalMinutes below.
  */
 
 export type PlanId = 'free' | 'garimpo' | 'lojista' | 'pro'
@@ -72,8 +72,8 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     name: 'Lojista',
     priceMonthly: 129,
     monitorLimit: 8,
-    checkIntervalMinutes: 30,
-    clientRefreshMinutes: 10,
+    checkIntervalMinutes: 240,
+    clientRefreshMinutes: 30,
     activeHourStart: 8,
     activeHourEnd: 20,
     tagline: 'Mais monitores e atualizações frequentes.',
@@ -85,8 +85,8 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     name: 'Pro',
     priceMonthly: 249,
     monitorLimit: 15,
-    checkIntervalMinutes: 10,
-    clientRefreshMinutes: 5,
+    checkIntervalMinutes: 60,
+    clientRefreshMinutes: 15,
     activeHourStart: 0,
     activeHourEnd: 24,
     tagline: 'Máxima cobertura para operação profissional.',
@@ -118,6 +118,36 @@ export function dailyMonitorCreationLimit(plan: PlanConfig): number {
 export function formatPlanPrice(plan: PlanConfig): string {
   if (plan.priceMonthly === 0) return 'Grátis'
   return `R$ ${plan.priceMonthly}/mês`
+}
+
+/** Human label for cron scrape cadence (checkIntervalMinutes). */
+export function formatCheckInterval(minutes: number): string {
+  if (minutes >= 1440) return '1× ao dia'
+  if (minutes === 480) return '3× ao dia'
+  if (minutes === 240) return '6× ao dia'
+  if (minutes === 60) return 'a cada 1 hora'
+  if (1440 % minutes === 0) {
+    const times = 1440 / minutes
+    if (times >= 2 && times <= 24) return `${times}× ao dia`
+  }
+  if (minutes >= 60) return `a cada ${Math.round(minutes / 60)}h`
+  return `a cada ${minutes} min`
+}
+
+/** Max ML/OLX pages per cron run for this plan (proxy cost control). */
+export function cronScrapeMaxPages(planId: PlanId): number {
+  switch (planId) {
+    case 'free':
+      return 1
+    case 'garimpo':
+      return 2
+    case 'lojista':
+      return 2
+    case 'pro':
+      return 3
+    default:
+      return 1
+  }
 }
 
 export function formatRefreshMinutes(minutes: number): string {

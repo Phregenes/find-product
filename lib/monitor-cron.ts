@@ -3,7 +3,7 @@ import 'server-only'
 import type { Browser } from 'playwright-core'
 import type { Condition, Marketplace, MarketplaceMode, Product, SortBy } from '@/lib/product'
 import type { PlanConfig, PlanId } from '@/lib/plans'
-import { getPlanConfig, isSnapshotDue, isWithinActiveHours } from '@/lib/plans'
+import { getPlanConfig, cronScrapeMaxPages, isSnapshotDue, isWithinActiveHours } from '@/lib/plans'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { writeCache } from '@/lib/searches'
 import { scrapeMarketplacePages } from '@/lib/marketplace-scrape'
@@ -63,13 +63,14 @@ export interface CronRunResult {
 async function scrapeSearchIfNeeded(
   search: SearchRow,
   browser: Browser,
+  maxPages: number,
 ): Promise<Product[]> {
   const scraped = await scrapeMarketplacePages(
     search.marketplace,
     search.query,
     search.sort_by,
     search.condition,
-    { browser },
+    { browser, maxPages },
   )
 
   if (scraped.page1.length > 0) {
@@ -116,6 +117,26 @@ function mergeProductsForMonitor(
     }
   }
   return merged
+}
+
+function plansForSearch(
+  searchId: string,
+  monitors: MonitorRow[],
+  planByUser: Map<string, PlanConfig>,
+): PlanConfig[] {
+  return monitors
+    .filter((m) => searchIdsForMonitor(m).includes(searchId))
+    .map((m) => planByUser.get(m.user_id) ?? getPlanConfig(null))
+}
+
+/** Deepest scan needed by the fastest (most frequent) subscriber on this search. */
+function maxPagesForSearchPlans(plans: PlanConfig[]): number {
+  if (plans.length === 0) return 1
+  const fastest = Math.min(...plans.map((p) => p.checkIntervalMinutes))
+  if (fastest <= 60) return cronScrapeMaxPages('pro')
+  if (fastest <= 240) return cronScrapeMaxPages('lojista')
+  if (fastest <= 480) return cronScrapeMaxPages('garimpo')
+  return cronScrapeMaxPages('free')
 }
 
 export async function runMonitorCron(now = new Date()): Promise<CronRunResult> {
@@ -184,14 +205,20 @@ export async function runMonitorCron(now = new Date()): Promise<CronRunResult> {
       if (!search || !scrapeBrowser) continue
 
       try {
-        const products = await scrapeSearchIfNeeded(search, scrapeBrowser)
+        const maxPages = maxPagesForSearchPlans(
+          plansForSearch(searchId, dueMonitors, planByUser),
+        )
+        const products = await scrapeSearchIfNeeded(search, scrapeBrowser, maxPages)
         scrapedBySearch.set(searchId, products)
       } catch (err) {
         if (isBrowserClosedError(err)) {
           await scrapeBrowser.close().catch(() => {})
           scrapeBrowser = await launchBrowser()
           try {
-            const products = await scrapeSearchIfNeeded(search, scrapeBrowser)
+            const maxPages = maxPagesForSearchPlans(
+              plansForSearch(searchId, dueMonitors, planByUser),
+            )
+            const products = await scrapeSearchIfNeeded(search, scrapeBrowser, maxPages)
             scrapedBySearch.set(searchId, products)
             continue
           } catch (retryErr) {

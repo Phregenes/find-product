@@ -249,7 +249,7 @@ async function scrapeOlxSearchPagesOnce(
   const browser = sharedBrowser ?? (await launchBrowser())
 
   try {
-    const context = await createScrapeContext(browser, { blockImages: false })
+    const context = await createScrapeContext(browser, { blockImages: true })
     try {
       const browserPage = await context.newPage()
       const allPages: Product[] = []

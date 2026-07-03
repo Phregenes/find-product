@@ -19,10 +19,11 @@ export async function scrapeMarketplacePages(
   opts?: ScrapeMarketplaceOptions,
 ): Promise<{ page1: Product[]; allPages: Product[]; hasMore: boolean }> {
   const browser = opts?.browser
+  const maxPages = opts?.maxPages
   if (marketplace === 'olx') {
-    const pages = opts?.maxPages ?? getOlxScrapeMaxPages()
+    const pages = getOlxScrapeMaxPages(maxPages)
     return scrapeOlxSearchPages(query, sortBy, pages, 1, browser)
   }
-  const pages = opts?.maxPages ?? getMonitorScrapeMaxPages()
+  const pages = getMonitorScrapeMaxPages(maxPages)
   return scrapeSearchPages(query, sortBy, condition, pages, 1, browser)
 }

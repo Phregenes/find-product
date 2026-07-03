@@ -1,23 +1,25 @@
-/** Scrape depth and serverless tuning — safe for server-only imports. */
+import 'server-only'
 
-export const MONITOR_SCRAPE_MAX_PAGES = 8
-export const OLX_SCRAPE_MAX_PAGES = 8
+/** Scrape depth caps — keep proxy bandwidth low on serverless. */
+export const MONITOR_SCRAPE_MAX_PAGES = 6
+export const OLX_SCRAPE_MAX_PAGES = 6
 
-/** Fewer pages on Vercel/Lambda to reduce memory and browser lifetime. */
-export const SERVERLESS_MONITOR_SCRAPE_MAX_PAGES = 4
-export const SERVERLESS_OLX_SCRAPE_MAX_PAGES = 4
+export const SERVERLESS_MONITOR_SCRAPE_MAX_PAGES = 2
+export const SERVERLESS_OLX_SCRAPE_MAX_PAGES = 2
 
 export function isServerlessScrape(): boolean {
   return !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME)
 }
 
-export function getMonitorScrapeMaxPages(): number {
+export function getMonitorScrapeMaxPages(override?: number): number {
+  if (override != null) return override
   return isServerlessScrape()
     ? SERVERLESS_MONITOR_SCRAPE_MAX_PAGES
     : MONITOR_SCRAPE_MAX_PAGES
 }
 
-export function getOlxScrapeMaxPages(): number {
+export function getOlxScrapeMaxPages(override?: number): number {
+  if (override != null) return override
   return isServerlessScrape()
     ? SERVERLESS_OLX_SCRAPE_MAX_PAGES
     : OLX_SCRAPE_MAX_PAGES

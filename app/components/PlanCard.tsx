@@ -2,6 +2,7 @@ import Link from 'next/link'
 import {
   type PlanConfig,
   formatPlanPrice,
+  formatCheckInterval,
   formatRefreshMinutes,
   formatActiveHours,
   isPaidPlan,
@@ -71,18 +72,19 @@ export default function PlanCard({
         <li className="flex items-start gap-2">
           <CheckIcon />
           <span>
-            {plan.id === 'free' ? (
-              <>
-                Novidades verificadas <strong>{formatRefreshMinutes(plan.checkIntervalMinutes)}</strong>
-              </>
-            ) : (
-              <>
-                Atualização a cada <strong>{formatRefreshMinutes(plan.clientRefreshMinutes)}</strong>{' '}
-                com o app aberto
-              </>
-            )}
+            Busca automática no servidor{' '}
+            <strong>{formatCheckInterval(plan.checkIntervalMinutes)}</strong>
           </span>
         </li>
+        {paid && (
+          <li className="flex items-start gap-2">
+            <CheckIcon />
+            <span>
+              Com o app aberto, leitura a cada{' '}
+              <strong>{formatRefreshMinutes(plan.clientRefreshMinutes)}</strong>
+            </span>
+          </li>
+        )}
         {paid && (
           <li className="flex items-start gap-2">
             <CheckIcon />

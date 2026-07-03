@@ -16,6 +16,67 @@ function getProxy() {
   }
 }
 
+/** Third-party hosts that burn proxy bandwidth without helping the scrape. */
+const BLOCKED_HOST_SUFFIXES = [
+  'doubleclick.net',
+  'googlesyndication.com',
+  'google-analytics.com',
+  'googletagmanager.com',
+  'googleadservices.com',
+  'facebook.net',
+  'facebook.com',
+  'taboola.com',
+  'criteo.com',
+  'criteo.net',
+  'hotjar.com',
+  'rubiconproject.com',
+  'pubmatic.com',
+  'adnxs.com',
+  'quantserve.com',
+  'adsafeprotected.com',
+  'qualtrics.com',
+  'amazon-adsystem.com',
+  'outbrain.com',
+  'smartadserver.com',
+  'tiktok.com',
+  'tiktokw.us',
+  'datadoghq-browser-agent.com',
+  'mouseflow.com',
+  'spotify.com',
+  'turn.com',
+  'adform.net',
+  'casalemedia.com',
+  'openx.net',
+  'media.net',
+  '33across.com',
+  'sharethrough.com',
+  'rlcdn.com',
+  'mathtag.com',
+  'privacymanager.io',
+  'seedtag.com',
+  'flashtalking.com',
+  'creativecdn.com',
+  'temu.com',
+]
+
+function isBlockedHost(hostname: string): boolean {
+  const host = hostname.toLowerCase()
+  return BLOCKED_HOST_SUFFIXES.some(
+    (suffix) => host === suffix || host.endsWith(`.${suffix}`),
+  )
+}
+
+function shouldBlockRequest(url: string, resourceType: string, blockImages: boolean): boolean {
+  if (blockImages && (resourceType === 'image' || resourceType === 'media' || resourceType === 'font')) {
+    return true
+  }
+  try {
+    return isBlockedHost(new URL(url).hostname)
+  } catch {
+    return false
+  }
+}
+
 export async function launchBrowser() {
   const proxy = getProxy()
   const launchArgs = [
@@ -59,15 +120,14 @@ export async function createScrapeContext(
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
   })
 
-  if (blockImages) {
-    await context.route('**/*', (route) => {
-      const type = route.request().resourceType()
-      if (type === 'image' || type === 'media' || type === 'font') {
-        return route.abort()
-      }
-      return route.continue()
-    })
-  }
+  await context.route('**/*', (route) => {
+    const url = route.request().url()
+    const type = route.request().resourceType()
+    if (shouldBlockRequest(url, type, blockImages)) {
+      return route.abort()
+    }
+    return route.continue()
+  })
 
   await context.addCookies([
     {
