@@ -1,7 +1,7 @@
 import 'server-only'
 
 import { Resend } from 'resend'
-import type { Product } from '@/lib/product'
+import type { MarketplaceMode, Product } from '@/lib/product'
 import { buildNewProductsEmail } from './new-products'
 
 let resend: Resend | null = null
@@ -26,10 +26,12 @@ export function getAppUrl(): string {
 export async function sendNewProductsEmail({
   to,
   monitorQuery,
+  marketplaceMode,
   products,
 }: {
   to: string
   monitorQuery: string
+  marketplaceMode?: MarketplaceMode
   products: Product[]
 }): Promise<{ ok: boolean; error?: string }> {
   const client = getResend()
@@ -42,6 +44,7 @@ export async function sendNewProductsEmail({
 
   const { subject, html, text } = buildNewProductsEmail({
     monitorQuery,
+    marketplaceMode,
     products,
     appUrl: getAppUrl(),
   })

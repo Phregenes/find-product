@@ -8,6 +8,11 @@ import {
   filterModeLabel,
   parseFilterMode,
 } from '@/lib/monitor-filter'
+import {
+  MARKETPLACE_MODE_OPTIONS,
+  marketplaceModeLabel,
+  parseMarketplaceMode,
+} from '@/lib/marketplace'
 
 const CONDITION_LABELS: Record<Condition, string> = {
   all: 'Todos',
@@ -55,6 +60,8 @@ export default function MonitorDetailsModal({
   if (!monitor) return null
 
   const condition = monitor.searches?.condition ?? 'all'
+  const marketplaceMode = parseMarketplaceMode(monitor.marketplace_mode)
+  const marketplaceOption = MARKETPLACE_MODE_OPTIONS.find((o) => o.id === marketplaceMode)
   const filterMode = parseFilterMode(monitor.filter_mode)
   const filterOption = FILTER_MODE_OPTIONS.find((o) => o.id === filterMode)
   const excludeTerms = monitor.exclude_terms ?? []
@@ -89,7 +96,7 @@ export default function MonitorDetailsModal({
             Configurações do monitor
           </h2>
           <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-            Apenas visualização — as opções abaixo estão ativas neste monitor.
+            Definidas na criação — use o filtro ML/OLX na lista para visualizar por site.
           </p>
         </div>
 
@@ -98,6 +105,19 @@ export default function MonitorDetailsModal({
             <DetailValue>
               <span className="capitalize">{monitor.query}</span>
             </DetailValue>
+          </DetailField>
+
+          <DetailField label="Onde buscar">
+            <div className="rounded-xl border border-orange-400/50 bg-orange-50/50 p-3 ring-1 ring-orange-400/20 dark:border-orange-500/40 dark:bg-orange-950/20">
+              <p className="text-sm font-medium text-zinc-900 dark:text-white">
+                {marketplaceOption?.label ?? marketplaceModeLabel(marketplaceMode)}
+              </p>
+              {marketplaceOption && (
+                <p className="mt-1 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+                  {marketplaceOption.description}
+                </p>
+              )}
+            </div>
           </DetailField>
 
           <DetailField label="Condição">
@@ -133,7 +153,7 @@ export default function MonitorDetailsModal({
               {!planEmailAlerts
                 ? 'Indisponível no plano atual'
                 : emailEnabled
-                  ? 'Ativado'
+                  ? 'Ativado — avisa só anúncios novos desde a última varredura'
                   : 'Desativado'}
             </DetailValue>
           </DetailField>

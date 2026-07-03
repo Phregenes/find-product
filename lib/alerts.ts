@@ -1,6 +1,6 @@
 import 'server-only'
 
-import type { Product } from '@/lib/product'
+import type { MarketplaceMode, Product } from '@/lib/product'
 import { getPlanConfig, isSnapshotDue, isWithinActiveHours } from '@/lib/plans'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendNewProductsEmail } from '@/lib/email/send'
@@ -37,6 +37,7 @@ interface MonitorRow {
   filter_mode: MonitorFilterMode
   exclude_terms: string[] | null
   email_alerts: boolean
+  marketplace_mode?: MarketplaceMode | null
 }
 
 /** Sync one monitor catalog (ML, OLX, or merged) after scrape. */
@@ -108,6 +109,7 @@ export async function processSingleMonitorAlert(
       const send = await sendNewProductsEmail({
         to: profile.email!,
         monitorQuery: query,
+        marketplaceMode: monitor.marketplace_mode ?? undefined,
         products: toNotify,
       })
       emailed = send.ok
@@ -142,7 +144,7 @@ export async function processMonitorAlerts(
 
   const { data: monitors, error: mErr } = await admin
     .from('monitors')
-    .select('id, user_id, query, snapshot_at, last_notified_item_ids, filter_mode, exclude_terms, email_alerts')
+    .select('id, user_id, query, snapshot_at, last_notified_item_ids, filter_mode, exclude_terms, email_alerts, marketplace_mode')
     .eq('search_id', searchId)
   if (mErr) throw mErr
   if (!monitors?.length) return results

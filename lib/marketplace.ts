@@ -48,3 +48,17 @@ export function productImageReferrerPolicy(imageUrl: string): 'no-referrer' | un
   if (/img\.olx\.com\.br/i.test(imageUrl)) return 'no-referrer'
   return undefined
 }
+
+export function newProductsEmailHeadline(mode: MarketplaceMode): string {
+  if (mode === 'olx') return 'Novos anúncios na OLX'
+  if (mode === 'both') return 'Novos anúncios no ML e na OLX'
+  return 'Novos anúncios no Mercado Livre'
+}
+
+export function marketplaceBadgeEmailHtml(marketplace: Marketplace): string {
+  const isOlx = marketplace === 'olx'
+  const bg = isOlx ? '#f97316' : '#facc15'
+  const color = isOlx ? '#ffffff' : '#18181b'
+  const label = isOlx ? 'OLX' : 'ML'
+  return `<span style="display:inline-block;background:${bg};color:${color};font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;letter-spacing:0.02em;">${label}</span>`
+}
