@@ -3,9 +3,11 @@ import 'server-only'
 import type { Browser } from 'playwright-core'
 
 function getProxy() {
-  const isServerless =
-    !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME
-  if (!isServerless) return undefined
+  const useProxy =
+    !!process.env.VERCEL ||
+    !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.USE_PROXY === 'true'
+  if (!useProxy) return undefined
 
   const server = process.env.PROXY_SERVER?.trim()
   if (!server) return undefined

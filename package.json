@@ -9,7 +9,8 @@
     "lint": "eslint",
     "cron:worker": "tsx --require ./scripts/preload-server-only.cjs scripts/run-local-cron.ts",
     "cron:worker:loop": "tsx --require ./scripts/preload-server-only.cjs scripts/run-local-cron.ts --loop",
-    "cron:worker:force": "tsx --require ./scripts/preload-server-only.cjs scripts/run-local-cron.ts --force"
+    "cron:worker:force": "tsx --require ./scripts/preload-server-only.cjs scripts/run-local-cron.ts --force",
+    "cron:worker:force:proxy": "tsx --require ./scripts/preload-server-only.cjs scripts/run-local-cron.ts --force --proxy"
   },
   "dependencies": {
     "@sparticuz/chromium": "^149.0.0",
