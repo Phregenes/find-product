@@ -47,6 +47,11 @@ interface ProfileRow {
   plan: string
 }
 
+export interface CronRunOptions {
+  /** Ignora intervalo do plano e horário ativo — scrapeia todos os monitores. */
+  force?: boolean
+}
+
 export interface CronRunResult {
   ran: number
   skipped: number
@@ -147,9 +152,23 @@ function maxPagesForSearchPlans(plans: PlanConfig[]): number {
   return cronScrapeMaxPages('free')
 }
 
-export async function runMonitorCron(now = new Date()): Promise<CronRunResult> {
+function monitorShouldProcess(
+  snapshotAt: string | null,
+  plan: PlanConfig,
+  now: Date,
+  force: boolean,
+): boolean {
+  if (force) return true
+  return isSnapshotDue(snapshotAt, plan, now) && isWithinActiveHours(plan, now)
+}
+
+export async function runMonitorCron(
+  now = new Date(),
+  options: CronRunOptions = {},
+): Promise<CronRunResult> {
+  const force = options.force ?? false
   const delegation = await shouldDelegateToLocalScraper()
-  if (delegation.delegate) {
+  if (delegation.delegate && !force) {
     const admin = createAdminClient()
     const { count } = await admin.from('monitors').select('id', { count: 'exact', head: true })
     const total = count ?? 0
@@ -222,7 +241,7 @@ export async function runMonitorCron(now = new Date()): Promise<CronRunResult> {
 
   const dueMonitors = monitors.filter((m) => {
     const plan = planByUser.get(m.user_id) ?? getPlanConfig(null)
-    return isSnapshotDue(m.snapshot_at, plan, now) && isWithinActiveHours(plan, now)
+    return monitorShouldProcess(m.snapshot_at, plan, now, force)
   })
 
   const searchesToScrape = new Set<string>()
@@ -282,7 +301,7 @@ export async function runMonitorCron(now = new Date()): Promise<CronRunResult> {
   for (const monitor of monitors) {
     const plan = planByUser.get(monitor.user_id) ?? getPlanConfig(null)
     const profile = profileById.get(monitor.user_id)
-    const due = isSnapshotDue(monitor.snapshot_at, plan, now) && isWithinActiveHours(plan, now)
+    const due = monitorShouldProcess(monitor.snapshot_at, plan, now, force)
 
     if (!due) {
       results.push({
@@ -329,6 +348,7 @@ export async function runMonitorCron(now = new Date()): Promise<CronRunResult> {
         snapshotSearchId,
         profile,
         now,
+        { force },
       )
       alertResults.push(alert)
       results.push({
@@ -364,8 +384,10 @@ export async function runMonitorCron(now = new Date()): Promise<CronRunResult> {
     errors > 0 ? 'error' : ran > 0 || skipped > 0 ? 'ok' : 'degraded',
     errors > 0
       ? `${errors} monitor(es) com erro na última execução`
-      : `Executado: ${ran} monitor(es), ${skipped} ignorado(s)`,
-    { ran, skipped, emailsSent, errors, total: monitors.length, failedMonitors },
+      : force
+        ? `Forçado: ${ran} monitor(es), ${skipped} ignorado(s)`
+        : `Executado: ${ran} monitor(es), ${skipped} ignorado(s)`,
+    { ran, skipped, emailsSent, errors, total: monitors.length, failedMonitors, force },
   )
 
   if (!isVercelRuntime()) {

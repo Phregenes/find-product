@@ -47,17 +47,19 @@ export async function processSingleMonitorAlert(
   snapshotSearchId: string,
   profile: { email: string | null; emailAlerts: boolean; plan: string },
   now = new Date(),
+  options: { force?: boolean } = {},
 ): Promise<MonitorAlertResult> {
   const admin = createAdminClient()
   const monitorId = monitor.id
   const query = monitor.query
   const plan = getPlanConfig(profile.plan)
+  const force = options.force ?? false
 
-  if (!isSnapshotDue(monitor.snapshot_at, plan, now)) {
+  if (!force && !isSnapshotDue(monitor.snapshot_at, plan, now)) {
     return { monitorId, query, newCount: 0, emailed: false, skipped: true }
   }
 
-  if (!isWithinActiveHours(plan, now)) {
+  if (!force && !isWithinActiveHours(plan, now)) {
     return { monitorId, query, newCount: 0, emailed: false, skipped: true }
   }
 
