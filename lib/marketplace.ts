@@ -97,6 +97,31 @@ export function normalizeProductImageUrl(imageUrl: string): string {
   return `https://photos.enjoei.com.br/public/500x500/${b64.replace(/=+$/, '')}`
 }
 
+/** Fix legacy Enjoei product links missing `/p/` (they redirect to the homepage). */
+export function normalizeProductLink(link: string): string {
+  if (!link || !/enjoei\.com\.br/i.test(link)) return link
+  try {
+    const u = new URL(link)
+    if (!u.hostname.endsWith('enjoei.com.br')) return link
+    const path = u.pathname.replace(/^\/+/, '')
+    if (
+      !path
+      || path.startsWith('p/')
+      || path.startsWith('@')
+      || path.startsWith('s/')
+      || path === 's'
+    ) {
+      return link
+    }
+    // Product slugs end with numeric id: ...-123456
+    if (!/-\d+$/.test(path.split('/')[0] ?? '')) return link
+    u.pathname = `/p/${path}`
+    return u.toString()
+  } catch {
+    return link
+  }
+}
+
 export function newProductsEmailHeadline(mode: MarketplaceMode): string {
   if (mode === 'olx') return 'Novos anúncios na OLX'
   if (mode === 'enjoei') return 'Novos anúncios no Enjoei'

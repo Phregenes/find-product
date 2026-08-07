@@ -127,6 +127,22 @@ export async function POST(request: NextRequest) {
 
     const isNewMonitor = !existing
 
+    let previousMarketplace:
+      | {
+          marketplace_mode: string | null
+          olx_search_id: string | null
+          enjoei_search_id: string | null
+        }
+      | null = null
+    if (existing?.id) {
+      const { data: prev } = await admin
+        .from('monitors')
+        .select('marketplace_mode, olx_search_id, enjoei_search_id')
+        .eq('id', existing.id)
+        .maybeSingle()
+      previousMarketplace = prev
+    }
+
     const { data, error } = await admin
       .from('monitors')
       .upsert(
@@ -146,6 +162,20 @@ export async function POST(request: NextRequest) {
       .select(MONITOR_LIST_SELECT)
       .single()
     if (error) throw error
+
+    const marketplaceChanged =
+      !!previousMarketplace
+      && (
+        previousMarketplace.marketplace_mode !== marketplaceMode
+        || previousMarketplace.olx_search_id !== olxSearchId
+        || previousMarketplace.enjoei_search_id !== enjoeiSearchId
+      )
+
+    if (data?.id && (isNewMonitor || marketplaceChanged)) {
+      if (marketplaceChanged) {
+        await clearMonitorSnapshot(data.id as string)
+      }
+    }
 
     if (isNewMonitor && data?.id) {
       await recordMonitorCreation(userId, data.id as string)

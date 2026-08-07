@@ -3,6 +3,7 @@ import {
   inferProductMarketplace,
   marketplaceBadgeEmailHtml,
   newProductsEmailHeadline,
+  normalizeProductLink,
   parseMarketplaceMode,
   productMarketplaceLabel,
 } from '@/lib/marketplace'
@@ -35,6 +36,7 @@ export function buildNewProductsEmail({
     .map((p) => {
       const marketplace = inferProductMarketplace(p)
       const badge = marketplaceBadgeEmailHtml(marketplace)
+      const link = normalizeProductLink(p.link)
       const locationLine = p.location
         ? `<div style="margin-top:2px;font-size:12px;color:#a1a1aa;">${escapeHtml(p.location)}</div>`
         : ''
@@ -42,7 +44,7 @@ export function buildNewProductsEmail({
       <tr>
         <td style="padding:12px 0;border-bottom:1px solid #e4e4e7;">
           <div style="margin-bottom:6px;">${badge}</div>
-          <a href="${escapeHtml(p.link)}" style="color:#18181b;text-decoration:none;font-weight:600;font-size:15px;line-height:1.4;">
+          <a href="${escapeHtml(link)}" style="color:#18181b;text-decoration:none;font-weight:600;font-size:15px;line-height:1.4;">
             ${escapeHtml(p.title)}
           </a>
           <div style="margin-top:4px;font-size:14px;color:#71717a;">${escapeHtml(p.price)}</div>
@@ -105,7 +107,7 @@ export function buildNewProductsEmail({
   const lines = shown.map((p) => {
     const tag = productMarketplaceLabel(inferProductMarketplace(p))
     const loc = p.location ? ` (${p.location})` : ''
-    return `• [${tag}] ${p.title} — ${p.price}${loc}\n  ${p.link}`
+    return `• [${tag}] ${p.title} — ${p.price}${loc}\n  ${normalizeProductLink(p.link)}`
   })
   if (extra > 0) lines.push(`+ ${extra} outros no app`)
   const text = `${subject}\n\n${headline}\nFontes: ${monitorMeta}\n\n${lines.join('\n\n')}\n\nAbrir app: ${appUrl}/app`

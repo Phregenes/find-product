@@ -85,6 +85,27 @@ export function enjoeiPhotoUrl(
   return `https://photos.enjoei.com.br/public/${size}/${imagePublicId}`
 }
 
+/**
+ * Enjoei product pages live under `/p/{slug}`.
+ * Bare `/{slug}` is treated as a store handle and redirects to the homepage.
+ */
+export function enjoeiProductUrl(path: string | null | undefined): string {
+  const raw = (path ?? '').trim().replace(/^\/+/, '')
+  if (!raw) return 'https://www.enjoei.com.br/'
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const u = new URL(raw)
+      if (!u.hostname.endsWith('enjoei.com.br')) return raw
+      const slug = u.pathname.replace(/^\/+/, '').replace(/^p\//, '')
+      return slug ? `https://www.enjoei.com.br/p/${slug}` : 'https://www.enjoei.com.br/'
+    } catch {
+      return raw
+    }
+  }
+  const slug = raw.replace(/^p\//, '')
+  return `https://www.enjoei.com.br/p/${slug}`
+}
+
 function nodeToProduct(node: EnjoeiNode): Product | null {
   const idRaw = String(node.id ?? '').trim()
   const title = node.title?.name?.trim() ?? ''
@@ -106,7 +127,7 @@ function nodeToProduct(node: EnjoeiNode): Product | null {
     originalPrice: orig?.price,
     originalPriceNumber: orig?.priceNumber,
     image: enjoeiPhotoUrl(node.photo?.image_public_id),
-    link: `https://www.enjoei.com.br/${path}`,
+    link: enjoeiProductUrl(path),
     condition: node.used === false ? 'Novo' : node.used === true ? 'Usado' : undefined,
     freeShipping: !!node.shipping?.free,
     fullShipping: false,

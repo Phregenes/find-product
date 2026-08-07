@@ -15,7 +15,7 @@ import CreateMonitorModal, { type CreateMonitorOptions } from '@/app/components/
 import MonitorDetailsModal from '@/app/components/MonitorDetailsModal'
 import DeleteMonitorModal from '@/app/components/DeleteMonitorModal'
 import { filterModeLabel } from '@/lib/monitor-filter'
-import { marketplaceModeLabel, inferProductMarketplace, productMarketplaceLabel, productImageReferrerPolicy, normalizeProductImageUrl } from '@/lib/marketplace'
+import { marketplaceModeLabel, inferProductMarketplace, productMarketplaceLabel, productImageReferrerPolicy, normalizeProductImageUrl, normalizeProductLink } from '@/lib/marketplace'
 import type { Marketplace } from '@/lib/product'
 import { createClient } from '@/lib/supabase/client'
 import type { Product } from '@/lib/product'
@@ -107,12 +107,14 @@ function MarketplaceBadge({ marketplace, className = '' }: { marketplace: Market
   )
 }
 
+const RESULTS_PAGE_SIZE = 24
+
 function ProductCard({ product, isNew }: { product: Product; isNew: boolean }) {
   const marketplace = inferProductMarketplace(product)
 
   return (
     <a
-      href={product.link}
+      href={normalizeProductLink(product.link)}
       target="_blank"
       rel="noopener noreferrer"
       className={`group relative flex flex-col overflow-hidden rounded-xl border bg-white shadow-sm transition active:scale-[.98] sm:rounded-2xl sm:hover:shadow-md dark:bg-zinc-900 ${
@@ -276,6 +278,7 @@ export default function MonitorApp() {
   const [detailsMonitor, setDetailsMonitor] = useState<MonitorWithSearch | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<MonitorWithSearch | null>(null)
   const [marketplaceViewFilter, setMarketplaceViewFilter] = useState<'all' | Marketplace>('all')
+  const [resultsPage, setResultsPage] = useState(1)
 
   useEffect(() => {
     if (!detailsMonitor) return
@@ -287,16 +290,39 @@ export default function MonitorApp() {
 
   useEffect(() => {
     setMarketplaceViewFilter('all')
+    setResultsPage(1)
   }, [activeId])
+
+  useEffect(() => {
+    setResultsPage(1)
+  }, [marketplaceViewFilter])
 
   const showMarketplaceFilter = activeMonitor?.marketplace_mode === 'both'
 
   const displayedProducts = useMemo(() => {
-    if (marketplaceViewFilter === 'all') return viewState.products
-    return viewState.products.filter(
-      (p) => inferProductMarketplace(p) === marketplaceViewFilter,
-    )
-  }, [viewState.products, marketplaceViewFilter])
+    const list =
+      marketplaceViewFilter === 'all'
+        ? viewState.products
+        : viewState.products.filter(
+            (p) => inferProductMarketplace(p) === marketplaceViewFilter,
+          )
+    return list.slice().sort((a, b) => {
+      const aNew = viewState.newIds.has(a.id) ? 1 : 0
+      const bNew = viewState.newIds.has(b.id) ? 1 : 0
+      return bNew - aNew
+    })
+  }, [viewState.products, viewState.newIds, marketplaceViewFilter])
+
+  const resultsTotalPages = Math.max(1, Math.ceil(displayedProducts.length / RESULTS_PAGE_SIZE))
+  const safeResultsPage = Math.min(resultsPage, resultsTotalPages)
+  const pagedProducts = useMemo(() => {
+    const start = (safeResultsPage - 1) * RESULTS_PAGE_SIZE
+    return displayedProducts.slice(start, start + RESULTS_PAGE_SIZE)
+  }, [displayedProducts, safeResultsPage])
+
+  useEffect(() => {
+    if (resultsPage > resultsTotalPages) setResultsPage(resultsTotalPages)
+  }, [resultsPage, resultsTotalPages])
 
   const displayedNewIds = useMemo(() => {
     if (marketplaceViewFilter === 'all') return viewState.newIds
@@ -971,17 +997,100 @@ export default function MonitorApp() {
 
         {/* Products grid */}
         {!viewState.loading && displayedProducts.length > 0 && (
-          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
-            {displayedProducts
-              .slice()
-              .sort((a, b) => {
-                const aNew = viewState.newIds.has(a.id) ? 1 : 0
-                const bNew = viewState.newIds.has(b.id) ? 1 : 0
-                return bNew - aNew
-              })
-              .map((product) => (
-                <ProductCard key={product.id} product={product} isNew={viewState.newIds.has(product.id)} />
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+              <span>
+                {displayedProducts.length} anúncio{displayedProducts.length !== 1 ? 's' : ''}
+                {resultsTotalPages > 1 && (
+                  <>
+                    {' '}
+                    · página {safeResultsPage} de {resultsTotalPages}
+                  </>
+                )}
+              </span>
+              {resultsTotalPages > 1 && (
+                <span className="tabular-nums">
+                  {(safeResultsPage - 1) * RESULTS_PAGE_SIZE + 1}–
+                  {Math.min(safeResultsPage * RESULTS_PAGE_SIZE, displayedProducts.length)}
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
+              {pagedProducts.map((product) => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  isNew={viewState.newIds.has(product.id)}
+                />
               ))}
+            </div>
+
+            {resultsTotalPages > 1 && (
+              <div className="flex items-center justify-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResultsPage((p) => Math.max(1, p - 1))
+                    window.scrollTo({ top: 0, behavior: 'smooth' })
+                  }}
+                  disabled={safeResultsPage <= 1}
+                  className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  Anterior
+                </button>
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: resultsTotalPages }, (_, i) => i + 1)
+                    .filter((page) => {
+                      if (resultsTotalPages <= 7) return true
+                      if (page === 1 || page === resultsTotalPages) return true
+                      return Math.abs(page - safeResultsPage) <= 1
+                    })
+                    .reduce<Array<number | 'ellipsis'>>((acc, page, idx, arr) => {
+                      if (idx > 0) {
+                        const prev = arr[idx - 1]
+                        if (page - prev > 1) acc.push('ellipsis')
+                      }
+                      acc.push(page)
+                      return acc
+                    }, [])
+                    .map((item, idx) =>
+                      item === 'ellipsis' ? (
+                        <span key={`e-${idx}`} className="px-1 text-xs text-zinc-400">
+                          …
+                        </span>
+                      ) : (
+                        <button
+                          key={item}
+                          type="button"
+                          onClick={() => {
+                            setResultsPage(item)
+                            window.scrollTo({ top: 0, behavior: 'smooth' })
+                          }}
+                          className={`min-w-8 rounded-lg px-2.5 py-1.5 text-xs font-medium transition ${
+                            item === safeResultsPage
+                              ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900'
+                              : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800'
+                          }`}
+                        >
+                          {item}
+                        </button>
+                      ),
+                    )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResultsPage((p) => Math.min(resultsTotalPages, p + 1))
+                    window.scrollTo({ top: 0, behavior: 'smooth' })
+                  }}
+                  disabled={safeResultsPage >= resultsTotalPages}
+                  className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  Próxima
+                </button>
+              </div>
+            )}
           </div>
         )}
       </main>
