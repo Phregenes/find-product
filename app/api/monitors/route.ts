@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
     if (marketplaceModeRequiresOlx(requestedMode) && !plan.olxAccess) {
       return Response.json(
         {
-          error: 'Busca na OLX disponível a partir do plano Lojista. Faça upgrade para monitorar OLX ou ML + OLX.',
+          error: 'OLX e Enjoei disponíveis a partir do plano Lojista. Faça upgrade para monitorar esses marketplaces.',
           code: 'OLX_PLAN_REQUIRED',
           plan: plan.id,
         },
@@ -70,15 +70,20 @@ export async function POST(request: NextRequest) {
 
     let primarySearch
     let olxSearchId: string | null = null
+    let enjoeiSearchId: string | null = null
 
     if (marketplaceMode === 'ml') {
       primarySearch = await resolveSearch(query, DEFAULT_SORT, condition, 'ml')
     } else if (marketplaceMode === 'olx') {
       primarySearch = await resolveSearch(query, DEFAULT_SORT, condition, 'olx')
+    } else if (marketplaceMode === 'enjoei') {
+      primarySearch = await resolveSearch(query, DEFAULT_SORT, condition, 'enjoei')
     } else {
       primarySearch = await resolveSearch(query, DEFAULT_SORT, condition, 'ml')
       const olxSearch = await resolveSearch(query, DEFAULT_SORT, condition, 'olx')
+      const enjoeiSearch = await resolveSearch(query, DEFAULT_SORT, condition, 'enjoei')
       olxSearchId = olxSearch.id
+      enjoeiSearchId = enjoeiSearch.id
     }
 
     const { data: existing } = await admin
@@ -129,6 +134,7 @@ export async function POST(request: NextRequest) {
           user_id: userId,
           search_id: primarySearch.id,
           olx_search_id: olxSearchId,
+          enjoei_search_id: enjoeiSearchId,
           marketplace_mode: marketplaceMode,
           query,
           filter_mode: filterMode,

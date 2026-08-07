@@ -59,10 +59,12 @@ export function buildNewProductsEmail({
 
   const monitorMeta =
     mode === 'both'
-      ? 'Mercado Livre e OLX'
+      ? 'Mercado Livre, OLX e Enjoei'
       : mode === 'olx'
         ? 'OLX'
-        : 'Mercado Livre'
+        : mode === 'enjoei'
+          ? 'Enjoei'
+          : 'Mercado Livre'
 
   const html = `<!DOCTYPE html>
 <html lang="pt-BR">

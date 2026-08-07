@@ -10,13 +10,35 @@ import { scrapeMarketplacePages } from '@/lib/marketplace-scrape'
 import { processSingleMonitorAlert, type MonitorAlertResult } from '@/lib/alerts'
 import { writeHeartbeat } from '@/lib/ops'
 import type { MonitorFilterMode } from '@/lib/monitor-filter'
-import { formatScrapeError, isBrowserClosedError } from '@/lib/error-message'
-import { launchBrowser } from '@/lib/scraper-browser'
+import { formatScrapeError, isBrowserClosedError, isMarketplaceBlockedError, withTransientRetry } from '@/lib/error-message'
+import { launchBrowser, shouldUseLeanBandwidth, isScrapeProxyActive } from '@/lib/scraper-browser'
 import {
   isVercelRuntime,
   shouldDelegateToLocalScraper,
   writeLocalScraperHeartbeat,
 } from '@/lib/local-scraper'
+
+/** Local IP (no proxy): soft rate limits — batching is what triggers ML verification. */
+const LOCAL_PAUSE_BETWEEN_MS = 15_000
+const LOCAL_BLOCK_COOLDOWN_MS = 60_000
+/** Max Mercado Livre searches per cron cycle on local IP. Rest wait for next loop. */
+const LOCAL_ML_MAX_PER_RUN = Math.max(
+  1,
+  parseInt(process.env.LOCAL_ML_MAX_PER_RUN ?? '3', 10) || 3,
+)
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms))
+}
+
+function pauseWithJitter(baseMs: number): number {
+  const jitter = Math.floor(Math.random() * 2_500)
+  return baseMs + jitter
+}
+
+function isLocalIpScrape(): boolean {
+  return !isVercelRuntime() && !isScrapeProxyActive()
+}
 
 interface SearchRow {
   id: string
@@ -33,6 +55,7 @@ interface MonitorRow {
   query: string
   search_id: string
   olx_search_id: string | null
+  enjoei_search_id: string | null
   marketplace_mode: MarketplaceMode
   snapshot_at: string | null
   last_notified_item_ids: string[] | null
@@ -78,17 +101,24 @@ async function scrapeSearchIfNeeded(
   browser: Browser,
   maxPages: number,
 ): Promise<Product[]> {
+  // Lean CDN blocking is for proxy bandwidth; on local IP it often triggers ML captcha.
+  const leanBandwidth = shouldUseLeanBandwidth(true)
   const scraped = await scrapeMarketplacePages(
     search.marketplace,
     search.query,
     search.sort_by,
     search.condition,
-    { browser, maxPages, leanBandwidth: true, usageSource: 'cron' },
+    { browser, maxPages, leanBandwidth, usageSource: 'cron' },
   )
 
   if (scraped.page1.length > 0) {
     await writeCache(search.id, 1, scraped.page1)
-    const tag = search.marketplace === 'olx' ? 'olx_scrape' : 'ml_scrape'
+    const tag =
+      search.marketplace === 'olx'
+        ? 'olx_scrape'
+        : search.marketplace === 'enjoei'
+          ? 'enjoei_scrape'
+          : 'ml_scrape'
     await writeHeartbeat(
       tag,
       'ok',
@@ -102,10 +132,10 @@ async function scrapeSearchIfNeeded(
 
 function searchIdsForMonitor(monitor: MonitorRow): string[] {
   const mode = monitor.marketplace_mode ?? 'ml'
-  if (mode === 'olx') return [monitor.search_id]
-  if (mode === 'ml') return [monitor.search_id]
+  if (mode === 'olx' || mode === 'enjoei' || mode === 'ml') return [monitor.search_id]
   const ids = [monitor.search_id]
   if (monitor.olx_search_id) ids.push(monitor.olx_search_id)
+  if (monitor.enjoei_search_id) ids.push(monitor.enjoei_search_id)
   return ids
 }
 
@@ -116,8 +146,9 @@ function mergeProductsForMonitor(
   const mode = monitor.marketplace_mode
   const ids: string[] = []
   if (mode === 'ml' || mode === 'both') ids.push(monitor.search_id)
-  if (mode === 'olx') ids.push(monitor.search_id)
+  if (mode === 'olx' || mode === 'enjoei') ids.push(monitor.search_id)
   if (mode === 'both' && monitor.olx_search_id) ids.push(monitor.olx_search_id)
+  if (mode === 'both' && monitor.enjoei_search_id) ids.push(monitor.enjoei_search_id)
 
   const seen = new Set<string>()
   const merged: Product[] = []
@@ -144,6 +175,8 @@ function plansForSearch(
 
 /** Deepest scan needed by the fastest (most frequent) subscriber on this search. */
 function maxPagesForSearchPlans(plans: PlanConfig[]): number {
+  // Local IP: 1 page is enough for new-listing alerts and far less likely to trip ML.
+  if (isLocalIpScrape()) return 1
   if (plans.length === 0) return 1
   const fastest = Math.min(...plans.map((p) => p.checkIntervalMinutes))
   if (fastest <= 60) return cronScrapeMaxPages('pro')
@@ -198,12 +231,15 @@ export async function runMonitorCron(
 
   const admin = createAdminClient()
 
-  const { data: monitorRows, error: mErr } = await admin
-    .from('monitors')
-    .select(
-      'id, user_id, query, search_id, olx_search_id, marketplace_mode, snapshot_at, last_notified_item_ids, filter_mode, exclude_terms, email_alerts',
-    )
-  if (mErr) throw mErr
+  const monitorRows = await withTransientRetry(async () => {
+    const { data, error } = await admin
+      .from('monitors')
+      .select(
+        'id, user_id, query, search_id, olx_search_id, enjoei_search_id, marketplace_mode, snapshot_at, last_notified_item_ids, filter_mode, exclude_terms, email_alerts',
+      )
+    if (error) throw error
+    return data
+  })
 
   const monitors = (monitorRows ?? []) as MonitorRow[]
   const userIds = [...new Set(monitors.map((m) => m.user_id))]
@@ -211,11 +247,14 @@ export async function runMonitorCron(
 
   const profileById = new Map<string, ProfileRow>()
   if (userIds.length > 0) {
-    const { data: profiles, error: pErr } = await admin
-      .from('profiles')
-      .select('id, email, email_alerts, plan')
-      .in('id', userIds)
-    if (pErr) throw pErr
+    const profiles = await withTransientRetry(async () => {
+      const { data, error } = await admin
+        .from('profiles')
+        .select('id, email, email_alerts, plan')
+        .in('id', userIds)
+      if (error) throw error
+      return data
+    })
     for (const p of profiles ?? []) {
       planByUser.set(p.id as string, getPlanConfig(p.plan as PlanId))
       profileById.set(p.id as string, {
@@ -231,11 +270,14 @@ export async function runMonitorCron(
     for (const id of searchIdsForMonitor(m)) searchIds.add(id)
   }
 
-  const { data: searchRows, error: sErr } = await admin
-    .from('searches')
-    .select('id, query, sort_by, condition, marketplace, last_scraped_at')
-    .in('id', [...searchIds])
-  if (sErr) throw sErr
+  const searchRows = await withTransientRetry(async () => {
+    const { data, error } = await admin
+      .from('searches')
+      .select('id, query, sort_by, condition, marketplace, last_scraped_at')
+      .in('id', [...searchIds])
+    if (error) throw error
+    return data
+  })
 
   const searchById = new Map((searchRows ?? []).map((s) => [s.id as string, s as SearchRow]))
 
@@ -251,43 +293,129 @@ export async function runMonitorCron(
 
   const scrapedBySearch = new Map<string, Product[]>()
   const scrapeErrors = new Map<string, string>()
+  const deferredSearchIds = new Set<string>()
 
   let scrapeBrowser =
     searchesToScrape.size > 0 ? await launchBrowser() : null
+  const leanBandwidth = shouldUseLeanBandwidth(true)
+  const localIp = isLocalIpScrape()
+  // Espaça requests no IP local — rajada no mesmo browser dispara verificação do ML.
+  let pauseBetweenMs = localIp ? LOCAL_PAUSE_BETWEEN_MS : 0
+  let scrapeIndex = 0
+  let consecutiveBlocks = 0
+  let mlDoneThisRun = 0
+  let stopMlForRun = false
+
+  // Oldest first; OLX/Enjoei before ML so extras still run if ML budget is tight.
+  const orderedSearchIds = [...searchesToScrape].sort((a, b) => {
+    const aSearch = searchById.get(a)
+    const bSearch = searchById.get(b)
+    const rank = (m?: string) => (m === 'olx' || m === 'enjoei' ? 0 : 1)
+    const aOlx = rank(aSearch?.marketplace)
+    const bOlx = rank(bSearch?.marketplace)
+    if (aOlx !== bOlx) return aOlx - bOlx
+    const aAt = aSearch?.last_scraped_at
+    const bAt = bSearch?.last_scraped_at
+    if (!aAt && !bAt) return 0
+    if (!aAt) return -1
+    if (!bAt) return 1
+    return aAt.localeCompare(bAt)
+  })
+
+  if (localIp) {
+    const mlDue = orderedSearchIds.filter((id) => searchById.get(id)?.marketplace === 'ml').length
+    if (mlDue > LOCAL_ML_MAX_PER_RUN) {
+      console.log(
+        `[cron] IP local: ${mlDue} buscas ML due → no máx. ${LOCAL_ML_MAX_PER_RUN} neste ciclo (resto no próximo loop)`,
+      )
+    }
+  }
+
+  async function relaunchBrowser(): Promise<Browser> {
+    await scrapeBrowser?.close().catch(() => {})
+    scrapeBrowser = await launchBrowser()
+    return scrapeBrowser
+  }
+
+  async function scrapeOneSearch(search: SearchRow): Promise<Product[]> {
+    if (!scrapeBrowser) scrapeBrowser = await launchBrowser()
+    const maxPages = maxPagesForSearchPlans(
+      plansForSearch(search.id, dueMonitors, planByUser),
+    )
+    return scrapeSearchIfNeeded(search, scrapeBrowser, maxPages)
+  }
 
   try {
-    for (const searchId of searchesToScrape) {
+    for (const searchId of orderedSearchIds) {
       const search = searchById.get(searchId)
-      if (!search || !scrapeBrowser) continue
+      if (!search) continue
+
+      if (localIp && search.marketplace === 'ml') {
+        if (stopMlForRun || mlDoneThisRun >= LOCAL_ML_MAX_PER_RUN) {
+          deferredSearchIds.add(searchId)
+          console.log(`[cron] ML adiado p/ próximo ciclo: "${search.query}"`)
+          continue
+        }
+      }
+
+      if (pauseBetweenMs > 0 && scrapeIndex > 0) {
+        await sleep(pauseWithJitter(pauseBetweenMs))
+      }
+      scrapeIndex += 1
 
       try {
-        const maxPages = maxPagesForSearchPlans(
-          plansForSearch(searchId, dueMonitors, planByUser),
-        )
-        const products = await scrapeSearchIfNeeded(search, scrapeBrowser, maxPages)
+        const products = await scrapeOneSearch(search)
         scrapedBySearch.set(searchId, products)
+        consecutiveBlocks = 0
+        if (localIp) pauseBetweenMs = LOCAL_PAUSE_BETWEEN_MS
+        if (search.marketplace === 'ml') mlDoneThisRun += 1
       } catch (err) {
         if (isBrowserClosedError(err)) {
-          await scrapeBrowser.close().catch(() => {})
-          scrapeBrowser = await launchBrowser()
+          await relaunchBrowser()
           try {
-            const maxPages = maxPagesForSearchPlans(
-              plansForSearch(searchId, dueMonitors, planByUser),
-            )
-            const products = await scrapeSearchIfNeeded(search, scrapeBrowser, maxPages)
+            const products = await scrapeOneSearch(search)
             scrapedBySearch.set(searchId, products)
+            consecutiveBlocks = 0
+            if (search.marketplace === 'ml') mlDoneThisRun += 1
             continue
           } catch (retryErr) {
-            const msg = formatScrapeError(retryErr)
-            scrapeErrors.set(searchId, msg)
-            const tag = search.marketplace === 'olx' ? 'olx_scrape' : 'ml_scrape'
-            await writeHeartbeat(tag, 'error', msg.slice(0, 500)).catch(() => {})
-            continue
+            err = retryErr
           }
         }
+
+        // One cooldown retry on local IP; further ML work waits for next loop (less damaging).
+        if (isMarketplaceBlockedError(err) && localIp && consecutiveBlocks < 1) {
+          consecutiveBlocks += 1
+          console.warn(
+            `[cron] ${search.marketplace} bloqueou "${search.query}" — pausa ${Math.round(LOCAL_BLOCK_COOLDOWN_MS / 1000)}s e 1 retry`,
+          )
+          await relaunchBrowser()
+          await sleep(LOCAL_BLOCK_COOLDOWN_MS)
+          pauseBetweenMs = LOCAL_PAUSE_BETWEEN_MS + 4_000
+          try {
+            const products = await scrapeOneSearch(search)
+            scrapedBySearch.set(searchId, products)
+            consecutiveBlocks = 0
+            if (search.marketplace === 'ml') mlDoneThisRun += 1
+            continue
+          } catch (retryErr) {
+            err = retryErr
+          }
+        }
+
+        if (isMarketplaceBlockedError(err) && localIp && search.marketplace === 'ml') {
+          stopMlForRun = true
+          console.warn('[cron] ML ainda bloqueando — demais buscas ML ficam p/ o próximo ciclo')
+        }
+
         const msg = formatScrapeError(err)
         scrapeErrors.set(searchId, msg)
-        const tag = search.marketplace === 'olx' ? 'olx_scrape' : 'ml_scrape'
+        const tag =
+      search.marketplace === 'olx'
+        ? 'olx_scrape'
+        : search.marketplace === 'enjoei'
+          ? 'enjoei_scrape'
+          : 'ml_scrape'
         await writeHeartbeat(tag, 'error', msg.slice(0, 500)).catch(() => {})
       }
     }
@@ -326,8 +454,49 @@ export async function runMonitorCron(
     }
 
     const relatedSearchIds = searchIdsForMonitor(monitor)
-    const searchError = relatedSearchIds.map((id) => scrapeErrors.get(id)).find(Boolean)
-    if (searchError) {
+    const deferredOnly =
+      relatedSearchIds.some((id) => deferredSearchIds.has(id))
+      && relatedSearchIds.every(
+        (id) => deferredSearchIds.has(id) || scrapedBySearch.has(id) || scrapeErrors.has(id),
+      )
+      && !relatedSearchIds.some((id) => scrapedBySearch.has(id))
+      && !relatedSearchIds.some((id) => scrapeErrors.has(id))
+
+    // All related searches deferred to next cycle — not an error.
+    if (
+      relatedSearchIds.length > 0
+      && relatedSearchIds.every((id) => deferredSearchIds.has(id))
+    ) {
+      results.push({
+        monitorId: monitor.id,
+        query: monitor.query,
+        marketplaceMode: monitor.marketplace_mode,
+        scraped: 0,
+        skipped: true,
+      })
+      continue
+    }
+
+    // Mixed: deferred ML + no OLX data yet — skip quietly.
+    if (deferredOnly) {
+      results.push({
+        monitorId: monitor.id,
+        query: monitor.query,
+        marketplaceMode: monitor.marketplace_mode,
+        scraped: 0,
+        skipped: true,
+      })
+      continue
+    }
+
+    const catalog = mergeProductsForMonitor(monitor, scrapedBySearch)
+    const hardFail =
+      relatedSearchIds.length > 0
+      && relatedSearchIds.every((id) => scrapeErrors.has(id) || deferredSearchIds.has(id))
+      && relatedSearchIds.some((id) => scrapeErrors.has(id))
+      && catalog.length === 0
+    if (hardFail) {
+      const searchError = relatedSearchIds.map((id) => scrapeErrors.get(id)).find(Boolean)
       results.push({
         monitorId: monitor.id,
         query: monitor.query,
@@ -338,7 +507,18 @@ export async function runMonitorCron(
       continue
     }
 
-    const catalog = mergeProductsForMonitor(monitor, scrapedBySearch)
+    // If ML deferred but OLX (or other) has catalog, continue with what we have.
+    if (catalog.length === 0 && relatedSearchIds.some((id) => deferredSearchIds.has(id))) {
+      results.push({
+        monitorId: monitor.id,
+        query: monitor.query,
+        marketplaceMode: monitor.marketplace_mode,
+        scraped: 0,
+        skipped: true,
+      })
+      continue
+    }
+
     const snapshotSearchId = monitor.search_id
 
     try {

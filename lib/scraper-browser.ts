@@ -1,6 +1,6 @@
 import 'server-only'
 
-import type { Browser } from 'playwright-core'
+import type { Browser, Page } from 'playwright-core'
 
 function getProxy() {
   const useProxy =
@@ -16,6 +16,21 @@ function getProxy() {
     username: process.env.PROXY_USERNAME?.trim() || undefined,
     password: process.env.PROXY_PASSWORD?.trim() || undefined,
   }
+}
+
+/** True when Playwright is launched with a proxy (serverless or USE_PROXY). */
+export function isScrapeProxyActive(): boolean {
+  return !!getProxy()
+}
+
+/**
+ * Lean mode blocks ML/OLX CDNs to save proxy GB.
+ * On local IP it makes the page look broken/bot-like and often triggers ML verification.
+ */
+export function shouldUseLeanBandwidth(requested?: boolean): boolean {
+  if (requested === false) return false
+  if (requested === true) return isScrapeProxyActive() || !!process.env.VERCEL
+  return false
 }
 
 /** Third-party hosts that burn proxy bandwidth without helping the scrape. */
@@ -118,6 +133,12 @@ function shouldBlockRequest(
   }
 }
 
+/** tsx/esbuild keepNames injects __name into page.evaluate callbacks. */
+export async function primePageEvaluate(page: Page): Promise<void> {
+  await applyMacSafeFontFamilies(page).catch(() => {})
+  await page.evaluate('globalThis.__name=function(t){return t}')
+}
+
 export async function launchBrowser() {
   const proxy = getProxy()
   const launchArgs = [
@@ -144,22 +165,61 @@ export async function createScrapeContext(
   opts?: ScrapeContextOptions,
 ) {
   const blockImages = opts?.blockImages !== false
-  const leanBandwidth = opts?.leanBandwidth === true
+  const leanBandwidth = shouldUseLeanBandwidth(opts?.leanBandwidth)
 
   const context = await browser.newContext({
     userAgent:
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
     locale: 'pt-BR',
-    viewport: { width: 1280, height: 720 },
+    timezoneId: 'America/Sao_Paulo',
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 2,
+    colorScheme: 'light',
     extraHTTPHeaders: {
       'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
       Accept:
-        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'Upgrade-Insecure-Requests': '1',
+      'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+      'sec-ch-ua-mobile': '?0',
+      'sec-ch-ua-platform': '"macOS"',
     },
   })
 
-  await context.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
+  // String script: tsx/esbuild injects __name into function init scripts and breaks them.
+  await context.addInitScript(`
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    Object.defineProperty(navigator, 'languages', {
+      get: () => Object.freeze(['pt-BR', 'pt', 'en-US', 'en']),
+    });
+    Object.defineProperty(navigator, 'plugins', {
+      get: () => [1, 2, 3, 4, 5],
+    });
+    window.chrome = window.chrome || { runtime: {} };
+    globalThis.__name = function (t) { return t; };
+
+    // Avoid macOS "download font" dialogs when pages list Osaka/STHeiti/etc.
+    const style = document.createElement('style');
+    style.textContent = '*,*::before,*::after{font-family:Helvetica,Arial,sans-serif!important}';
+    const mount = () => {
+      const root = document.documentElement;
+      if (root && !document.getElementById('__fp-safe-fonts')) {
+        style.id = '__fp-safe-fonts';
+        root.appendChild(style);
+      }
+    };
+    mount();
+    document.addEventListener('DOMContentLoaded', mount);
+  `)
+
+  // Playwright defaults map CJK → Osaka/STHeiti/etc. → macOS "download font" modal storm.
+  context.on('page', (page) => {
+    void applyMacSafeFontFamilies(page).catch(() => {})
+    page.on('framenavigated', (frame) => {
+      if (frame === page.mainFrame()) {
+        void applyMacSafeFontFamilies(page).catch(() => {})
+      }
+    })
   })
 
   await context.route('**/*', (route) => {
@@ -171,15 +231,63 @@ export async function createScrapeContext(
     return route.continue()
   })
 
-  await context.addCookies([
-    {
-      name: '_bm_skipml',
-      value: 'true',
-      domain: '.mercadolivre.com.br',
-      path: '/',
-      expires: Math.floor(Date.now() / 1000) + 86_400,
-    },
-  ])
-
   return context
+}
+
+/**
+ * Force Chromium generic families away from Apple downloadable fonts.
+ * Playwright may still apply its defaults first — ensure-mac-scrape-fonts patches those.
+ */
+async function applyMacSafeFontFamilies(page: Page): Promise<void> {
+  if (process.platform !== 'darwin') return
+  if (page.isClosed()) return
+
+  const latin = {
+    standard: 'Helvetica',
+    fixed: 'Menlo',
+    serif: 'Times',
+    sansSerif: 'Helvetica',
+    cursive: 'Helvetica',
+    fantasy: 'Helvetica',
+  }
+  // Preinstalled on macOS — covers CJK without STHeiti/Osaka download prompts.
+  const cjk = {
+    standard: 'Hiragino Sans GB',
+    fixed: 'Menlo',
+    serif: 'Hiragino Sans GB',
+    sansSerif: 'Hiragino Sans GB',
+    cursive: 'Hiragino Sans GB',
+    fantasy: 'Hiragino Sans GB',
+  }
+  const jp = {
+    standard: 'Hiragino Kaku Gothic ProN',
+    fixed: 'Menlo',
+    serif: 'Hiragino Mincho ProN',
+    sansSerif: 'Hiragino Kaku Gothic ProN',
+    cursive: 'Hiragino Kaku Gothic ProN',
+    fantasy: 'Hiragino Kaku Gothic ProN',
+  }
+  const kr = {
+    standard: 'Apple SD Gothic Neo',
+    fixed: 'Menlo',
+    serif: 'Apple SD Gothic Neo',
+    sansSerif: 'Apple SD Gothic Neo',
+    cursive: 'Apple SD Gothic Neo',
+    fantasy: 'Apple SD Gothic Neo',
+  }
+
+  const session = await page.context().newCDPSession(page)
+  try {
+    await session.send('Page.setFontFamilies', {
+      fontFamilies: latin,
+      forScripts: [
+        { script: 'jpan', fontFamilies: jp },
+        { script: 'hang', fontFamilies: kr },
+        { script: 'hans', fontFamilies: cjk },
+        { script: 'hant', fontFamilies: cjk },
+      ],
+    })
+  } finally {
+    await session.detach().catch(() => {})
+  }
 }

@@ -10,7 +10,8 @@
     "cron:worker": "tsx --require ./scripts/preload-server-only.cjs scripts/run-local-cron.ts",
     "cron:worker:loop": "tsx --require ./scripts/preload-server-only.cjs scripts/run-local-cron.ts --loop",
     "cron:worker:force": "tsx --require ./scripts/preload-server-only.cjs scripts/run-local-cron.ts --force",
-    "cron:worker:force:proxy": "tsx --require ./scripts/preload-server-only.cjs scripts/run-local-cron.ts --force --proxy"
+    "cron:worker:force:proxy": "tsx --require ./scripts/preload-server-only.cjs scripts/run-local-cron.ts --force --proxy",
+    "fonts:mac": "node scripts/ensure-mac-scrape-fonts.mjs"
   },
   "dependencies": {
     "@sparticuz/chromium": "^149.0.0",
@@ -32,6 +33,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
+    "opentype.js": "^2.0.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.0",
     "typescript": "^5"

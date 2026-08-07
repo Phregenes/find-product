@@ -23,6 +23,7 @@ export interface MonitorSnapshotRow {
   exclude_terms: string[]
   marketplace_mode: MarketplaceMode
   olx_search_id: string | null
+  enjoei_search_id: string | null
 }
 
 interface SnapshotPayload {
@@ -53,7 +54,7 @@ export async function loadMonitorSnapshot(
   const admin = createAdminClient()
   const { data, error } = await admin
     .from('monitors')
-    .select('id, user_id, query, search_id, olx_search_id, marketplace_mode, snapshot_products, snapshot_at, last_checked_at, new_count, filter_mode, exclude_terms')
+    .select('id, user_id, query, search_id, olx_search_id, enjoei_search_id, marketplace_mode, snapshot_products, snapshot_at, last_checked_at, new_count, filter_mode, exclude_terms')
     .eq('id', monitorId)
     .eq('user_id', userId)
     .maybeSingle()
@@ -69,6 +70,7 @@ export async function loadMonitorSnapshot(
     exclude_terms: (data.exclude_terms as string[] | null) ?? [],
     marketplace_mode: parseMarketplaceMode(data.marketplace_mode),
     olx_search_id: (data.olx_search_id as string | null) ?? null,
+    enjoei_search_id: (data.enjoei_search_id as string | null) ?? null,
   } as MonitorSnapshotRow
 }
 

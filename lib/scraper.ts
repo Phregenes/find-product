@@ -3,7 +3,7 @@ import 'server-only'
 import type { Browser, Page } from 'playwright-core'
 import type { Product, SortBy, Condition } from './product'
 import { ML_PAGE_STEP } from './product'
-import { launchBrowser, createScrapeContext } from './scraper-browser'
+import { launchBrowser, createScrapeContext, primePageEvaluate } from './scraper-browser'
 import { isBrowserClosedError } from './error-message'
 import {
   attachProxyUsageTracker,
@@ -235,6 +235,7 @@ async function loadSearchPage(
   leanBandwidth = false,
 ): Promise<Product[]> {
   await browserPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 })
+  await primePageEvaluate(browserPage)
   await dismissCookieBanner(browserPage)
   await browserPage
     .waitForSelector('li.ui-search-layout__item, .account-verification-main', {

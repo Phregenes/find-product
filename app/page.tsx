@@ -12,7 +12,7 @@ export default function HomePage() {
           <div className="mx-auto max-w-3xl text-center">
             <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-yellow-200 bg-yellow-50 px-3 py-1 text-xs font-medium text-yellow-800 dark:border-yellow-900/40 dark:bg-yellow-950/30 dark:text-yellow-300">
               <span className="h-1.5 w-1.5 rounded-full bg-yellow-500" />
-              Mercado Livre e OLX em um só lugar
+              Mercado Livre, OLX e Enjoei em um só lugar
             </div>
 
             <h1 className="text-4xl font-bold tracking-tight text-zinc-900 sm:text-5xl dark:text-white">
@@ -21,7 +21,7 @@ export default function HomePage() {
             </h1>
 
             <p className="mt-5 text-lg text-zinc-600 dark:text-zinc-400">
-              FindProduct monitora suas buscas no Mercado Livre (e na OLX nos planos Lojista+),
+              FindProduct monitora suas buscas no Mercado Livre (e na OLX/Enjoei nos planos Lojista+),
               aplica filtros inteligentes e avisa quando surgem publicações novas — ideal para
               revendedores, lojistas e garimpeiros.
             </p>
@@ -42,7 +42,7 @@ export default function HomePage() {
             </div>
 
             <p className="mt-4 text-xs text-zinc-400">
-              Conta grátis com 1 monitor no ML · OLX a partir do plano Lojista
+              Conta grátis com 1 monitor no ML · OLX e Enjoei a partir do plano Lojista
             </p>
           </div>
         </section>
@@ -51,8 +51,8 @@ export default function HomePage() {
         <section className="border-y border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
           <div className="mx-auto grid max-w-6xl gap-8 px-4 py-16 sm:grid-cols-2 lg:grid-cols-4 sm:px-6">
             <Feature
-              title="ML e OLX"
-              description="Monitore só o Mercado Livre ou combine ML + OLX na mesma busca. OLX disponível no plano Lojista em diante."
+              title="ML, OLX e Enjoei"
+              description="Monitore só o Mercado Livre ou combine ML + OLX + Enjoei na mesma busca. OLX e Enjoei no plano Lojista em diante."
               icon={
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               }
@@ -122,10 +122,10 @@ export default function HomePage() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
                 }
                 highlights={[
-                  'Mercado Livre — ou OLX no plano Lojista+',
+                  'Mercado Livre — ou OLX/Enjoei no plano Lojista+',
                   'Condição (novo/usado), relevância do título e exclusões',
                 ]}
-                badges={['ML', 'OLX']}
+                badges={['ML', 'OLX', 'Enjoei']}
               />
               <HowItWorksStep
                 step={3}
@@ -161,7 +161,7 @@ export default function HomePage() {
           <div className="rounded-3xl bg-zinc-900 px-6 py-12 text-center sm:px-12 dark:bg-zinc-800">
             <h2 className="text-2xl font-bold text-white">Pronto para garimpar?</h2>
             <p className="mx-auto mt-3 max-w-md text-sm text-zinc-400">
-              Crie sua conta em segundos. Precisa de OLX, mais monitores ou e-mail? Veja o plano Lojista.
+              Crie sua conta em segundos. Precisa de OLX, Enjoei, mais monitores ou e-mail? Veja o plano Lojista.
             </p>
             <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Link
@@ -182,7 +182,7 @@ export default function HomePage() {
       </main>
 
       <footer className="mt-auto border-t border-zinc-200 py-6 text-center text-xs text-zinc-400 dark:border-zinc-800">
-        FindProduct · Monitoramento Mercado Livre e OLX ·{' '}
+        FindProduct · Monitoramento Mercado Livre, OLX e Enjoei ·{' '}
         <Link href="/status" className="hover:text-zinc-600 dark:hover:text-zinc-300">
           Status do sistema
         </Link>
@@ -243,7 +243,9 @@ function HowItWorksStep({
               className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
                 badge === 'OLX'
                   ? 'bg-orange-500 text-white'
-                  : 'bg-yellow-400 text-zinc-900'
+                  : badge === 'Enjoei'
+                    ? 'bg-pink-500 text-white'
+                    : 'bg-yellow-400 text-zinc-900'
               }`}
             >
               {badge}

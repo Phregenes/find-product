@@ -4,7 +4,12 @@ import type { Browser } from 'playwright-core'
 import type { Condition, Marketplace, Product, SortBy } from './product'
 import { scrapeSearchPages } from './scraper'
 import { scrapeOlxSearchPages } from './olx-scraper'
-import { getMonitorScrapeMaxPages, getOlxScrapeMaxPages } from './scrape-limits'
+import { scrapeEnjoeiSearchPages } from './enjoei-scraper'
+import {
+  getMonitorScrapeMaxPages,
+  getOlxScrapeMaxPages,
+  getEnjoeiScrapeMaxPages,
+} from './scrape-limits'
 
 import type { ProxyUsageSource } from './proxy-usage'
 
@@ -30,6 +35,10 @@ export async function scrapeMarketplacePages(
   if (marketplace === 'olx') {
     const pages = getOlxScrapeMaxPages(maxPages)
     return scrapeOlxSearchPages(query, sortBy, pages, 1, browser, lean, usageSource)
+  }
+  if (marketplace === 'enjoei') {
+    const pages = getEnjoeiScrapeMaxPages(maxPages)
+    return scrapeEnjoeiSearchPages(query, sortBy, pages, 1, lean, usageSource)
   }
   const pages = getMonitorScrapeMaxPages(maxPages)
   return scrapeSearchPages(query, sortBy, condition, pages, 1, browser, lean, usageSource)

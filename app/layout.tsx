@@ -10,7 +10,7 @@ const siteUrl = getSiteUrl()
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: `${SITE_NAME} — Monitore anúncios novos no Mercado Livre`,
+    default: `${SITE_NAME} — Monitore anúncios novos no Mercado Livre, OLX e Enjoei`,
     template: `%s | ${SITE_NAME}`,
   },
   description: SITE_DESCRIPTION,
@@ -23,12 +23,12 @@ export const metadata: Metadata = {
     locale: 'pt_BR',
     url: siteUrl,
     siteName: SITE_NAME,
-    title: `${SITE_NAME} — Monitore anúncios novos no Mercado Livre`,
+    title: `${SITE_NAME} — Monitore anúncios novos no Mercado Livre, OLX e Enjoei`,
     description: SITE_DESCRIPTION,
   },
   twitter: {
     card: 'summary_large_image',
-    title: `${SITE_NAME} — Monitore anúncios novos no Mercado Livre`,
+    title: `${SITE_NAME} — Monitore anúncios novos no Mercado Livre, OLX e Enjoei`,
     description: SITE_DESCRIPTION,
   },
   robots: {

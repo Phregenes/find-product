@@ -53,7 +53,7 @@ export default function PlanCard({
           <span>
             {plan.olxAccess ? (
               <>
-                <strong>Mercado Livre + OLX</strong> (só OLX ou os dois juntos)
+                <strong>Mercado Livre + OLX + Enjoei</strong>
               </>
             ) : (
               <>

@@ -3,7 +3,7 @@ import 'server-only'
 import type { Browser, Page } from 'playwright-core'
 import type { Product, SortBy } from './product'
 import { OLX_PAGE_STEP } from './product'
-import { launchBrowser, createScrapeContext } from './scraper-browser'
+import { launchBrowser, createScrapeContext, primePageEvaluate } from './scraper-browser'
 import { isBrowserClosedError } from './error-message'
 import {
   attachProxyUsageTracker,
@@ -199,6 +199,7 @@ async function scrollOlxResults(page: Page): Promise<void> {
 
 async function loadOlxPage(page: Page, url: string, leanBandwidth = false): Promise<Product[]> {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 })
+  await primePageEvaluate(page)
   await dismissOlxCookies(page)
   await page.waitForSelector(
     'section.olx-adcard, li[data-testid="ad-list-item"], [data-ds-component="DS-AdCard"], body',

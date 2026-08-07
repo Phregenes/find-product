@@ -19,7 +19,7 @@ export interface ProxyUsageSnapshot {
 
 export interface ProxyUsageEventInput {
   source: ProxyUsageSource
-  marketplace?: 'ml' | 'olx'
+  marketplace?: 'ml' | 'olx' | 'enjoei'
   query?: string
   leanBandwidth?: boolean
   maxPages?: number
@@ -175,7 +175,7 @@ export async function estimateDailyProxyBytesFromMonitors(
     const admin = createAdminClient()
     const { data: monitors, error: mErr } = await admin
       .from('monitors')
-      .select('user_id, search_id, olx_search_id, marketplace_mode')
+      .select('user_id, search_id, olx_search_id, enjoei_search_id, marketplace_mode')
     if (mErr || !monitors?.length) {
       return DEFAULT_EST_BYTES_PER_CRON_SCRAPE * 3
     }
@@ -195,10 +195,9 @@ export async function estimateDailyProxyBytesFromMonitors(
     for (const m of monitors) {
       const plan = planByUser.get(m.user_id as string) ?? getPlanConfig(null)
       const ids: string[] = [m.search_id as string]
-      if (m.marketplace_mode === 'both' && m.olx_search_id) {
-        ids.push(m.olx_search_id as string)
-      } else if (m.marketplace_mode === 'olx') {
-        ids[0] = m.search_id as string
+      if (m.marketplace_mode === 'both') {
+        if (m.olx_search_id) ids.push(m.olx_search_id as string)
+        if (m.enjoei_search_id) ids.push(m.enjoei_search_id as string)
       }
       for (const sid of ids) {
         const list = searchPlans.get(sid) ?? []

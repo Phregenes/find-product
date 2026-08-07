@@ -1,6 +1,6 @@
 import 'server-only'
 
-import type { Condition, MarketplaceMode, Product, SortBy } from '@/lib/product'
+import type { Condition, Marketplace, MarketplaceMode, Product, SortBy } from '@/lib/product'
 import { applyMonitorFilter } from '@/lib/monitor-filter-apply'
 import type { MonitorFilterMode } from '@/lib/monitor-filter'
 import { scrapeMarketplacePages } from '@/lib/marketplace-scrape'
@@ -15,9 +15,16 @@ export interface InitialScrapeMonitor {
   query: string
   search_id: string
   olx_search_id: string | null
+  enjoei_search_id: string | null
   marketplace_mode: MarketplaceMode
   filter_mode: MonitorFilterMode
   exclude_terms: string[]
+}
+
+function heartbeatTag(marketplace: Marketplace): string {
+  if (marketplace === 'olx') return 'olx_scrape'
+  if (marketplace === 'enjoei') return 'enjoei_scrape'
+  return 'ml_scrape'
 }
 
 /** Scrape page 1 per marketplace on first monitor load (before cron deep scan). */
@@ -30,21 +37,24 @@ export async function scrapeInitialMonitorCatalog(
   const merged: Product[] = []
   const seen = new Set<string>()
 
-  const needsMl = mode === 'ml' || mode === 'both'
-  const needsOlx = mode === 'olx' || (mode === 'both' && monitor.olx_search_id)
-  const browser = needsMl || needsOlx ? await launchBrowser() : null
+  const needsBrowser =
+    mode === 'ml'
+    || mode === 'olx'
+    || mode === 'both'
+  const browser = needsBrowser ? await launchBrowser() : null
 
-  async function addPage(
-    marketplace: 'ml' | 'olx',
-    searchId: string,
-  ): Promise<void> {
+  async function addPage(marketplace: Marketplace, searchId: string): Promise<void> {
     try {
       const { page1 } = await scrapeMarketplacePages(
         marketplace,
         monitor.query,
         sort,
         condition,
-        { maxPages: 1, browser: browser ?? undefined, usageSource: 'initial' },
+        {
+          maxPages: 1,
+          browser: marketplace === 'enjoei' ? undefined : (browser ?? undefined),
+          usageSource: 'initial',
+        },
       )
       if (page1.length > 0) await writeCache(searchId, 1, page1)
       for (const p of page1) {
@@ -53,7 +63,7 @@ export async function scrapeInitialMonitorCatalog(
           merged.push(p)
         }
       }
-      const tag = marketplace === 'olx' ? 'olx_scrape' : 'ml_scrape'
+      const tag = heartbeatTag(marketplace)
       await writeHeartbeat(
         tag,
         'ok',
@@ -61,8 +71,11 @@ export async function scrapeInitialMonitorCatalog(
         { query: monitor.query, marketplace, monitorId: monitor.id },
       )
     } catch (err) {
-      const tag = marketplace === 'olx' ? 'olx_scrape' : 'ml_scrape'
-      await writeHeartbeat(tag, 'error', (err as Error).message.slice(0, 500)).catch(() => {})
+      await writeHeartbeat(
+        heartbeatTag(marketplace),
+        'error',
+        (err as Error).message.slice(0, 500),
+      ).catch(() => {})
       throw err
     }
   }
@@ -87,6 +100,20 @@ export async function scrapeInitialMonitorCatalog(
     } else if (mode === 'both' && monitor.olx_search_id) {
       try {
         await addPage('olx', monitor.olx_search_id)
+      } catch (err) {
+        errors.push(err as Error)
+      }
+    }
+
+    if (mode === 'enjoei') {
+      try {
+        await addPage('enjoei', monitor.search_id)
+      } catch (err) {
+        errors.push(err as Error)
+      }
+    } else if (mode === 'both' && monitor.enjoei_search_id) {
+      try {
+        await addPage('enjoei', monitor.enjoei_search_id)
       } catch (err) {
         errors.push(err as Error)
       }

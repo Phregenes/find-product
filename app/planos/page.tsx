@@ -7,7 +7,7 @@ import { SITE_DESCRIPTION, SITE_NAME } from '@/lib/site'
 
 export const metadata = {
   title: 'Planos e preços',
-  description: `Compare os planos do ${SITE_NAME}. Mercado Livre no grátis; OLX, filtros avançados e e-mail a partir do Lojista.`,
+  description: `Compare os planos do ${SITE_NAME}. Mercado Livre no grátis; OLX, Enjoei, filtros avançados e e-mail a partir do Lojista.`,
   openGraph: {
     title: `Planos e preços | ${SITE_NAME}`,
     description: SITE_DESCRIPTION,
@@ -25,7 +25,7 @@ export default function PlanosPage() {
             Escolha seu plano
           </h1>
           <p className="mt-4 text-zinc-600 dark:text-zinc-400">
-            Comece grátis no Mercado Livre (1× ao dia). Upgrade para mais monitores, OLX,
+            Comece grátis no Mercado Livre (1× ao dia). Upgrade para mais monitores, OLX, Enjoei,
             alertas por e-mail e buscas automáticas até a cada hora no Pro.
           </p>
         </div>
@@ -51,7 +51,7 @@ export default function PlanosPage() {
           </ul>
           <p className="mt-4 font-medium text-zinc-900 dark:text-white">Exclusivo Lojista e Pro</p>
           <ul className="mt-3 list-inside list-disc space-y-1.5 text-zinc-500 dark:text-zinc-400">
-            <li>Monitoramento na OLX (só OLX ou ML + OLX na mesma busca)</li>
+            <li>Monitoramento na OLX e no Enjoei (só um marketplace ou ML + OLX + Enjoei juntos)</li>
             <li>Alertas por e-mail quando surgirem novidades</li>
           </ul>
         </div>

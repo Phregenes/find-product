@@ -107,7 +107,7 @@ export default function MonitorDetailsModal({
             Configurações do monitor
           </h2>
           <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-            Definidas na criação — use o filtro ML/OLX na lista para visualizar por site.
+            Definidas na criação — use o filtro ML/OLX/Enjoei na lista para visualizar por site.
           </p>
         </div>
 

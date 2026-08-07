@@ -29,6 +29,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { toErrorMessage } from '@/lib/error-message'
 import { applyMonitorFilter } from '@/lib/monitor-filter-apply'
 import { OlxScrapeBlockedError } from '@/lib/olx-scraper'
+import { EnjoeiScrapeBlockedError } from '@/lib/enjoei-scraper'
 import type { Product } from '@/lib/product'
 import type { MonitorSnapshotRow } from '@/lib/monitor-snapshot'
 
@@ -175,7 +176,11 @@ export async function GET(request: NextRequest) {
             monitor = (await loadMonitorSnapshot(monitorId, userId)) ?? monitor
           }
         } catch (err) {
-          if (err instanceof MlScrapeBlockedError || err instanceof OlxScrapeBlockedError) {
+          if (
+            err instanceof MlScrapeBlockedError
+            || err instanceof OlxScrapeBlockedError
+            || err instanceof EnjoeiScrapeBlockedError
+          ) {
             return Response.json({ error: err.message, code: err.code }, { status: 503 })
           }
           throw err
@@ -274,7 +279,11 @@ export async function GET(request: NextRequest) {
       fromCache: false,
     })
   } catch (err) {
-    if (err instanceof MlScrapeBlockedError || err instanceof OlxScrapeBlockedError) {
+    if (
+      err instanceof MlScrapeBlockedError
+      || err instanceof OlxScrapeBlockedError
+      || err instanceof EnjoeiScrapeBlockedError
+    ) {
       return Response.json({ error: err.message, code: err.code }, { status: 503 })
     }
     const msg = toErrorMessage(err)

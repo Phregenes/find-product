@@ -129,7 +129,7 @@ export default function CreateMonitorModal({
               Novo monitor
             </h2>
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-              Busca no Mercado Livre e/ou OLX e avisa quando surgir anúncio novo.
+              Busca no Mercado Livre, OLX e/ou Enjoei e avisa quando surgir anúncio novo.
             </p>
           </div>
 
@@ -152,7 +152,8 @@ export default function CreateMonitorModal({
               </legend>
               {!planOlxAccess && (
                 <p className="text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
-                  OLX e ML + OLX no plano <strong className="text-zinc-700 dark:text-zinc-300">Lojista</strong> ou superior.{' '}
+                  OLX, Enjoei e combo ML+OLX+Enjoei no plano{' '}
+                  <strong className="text-zinc-700 dark:text-zinc-300">Lojista</strong> ou superior.{' '}
                   <a href="/planos" className="font-medium text-yellow-600 hover:underline dark:text-yellow-400">
                     Ver planos
                   </a>

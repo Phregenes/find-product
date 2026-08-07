@@ -8,7 +8,7 @@ export interface SearchRow {
   query_normalized: string
   sort_by: SortBy
   condition: Condition
-  marketplace?: 'ml' | 'olx'
+  marketplace?: 'ml' | 'olx' | 'enjoei'
   last_scraped_at: string | null
   created_at: string
 }
@@ -18,6 +18,7 @@ export interface MonitorRow {
   user_id: string
   search_id: string
   olx_search_id?: string | null
+  enjoei_search_id?: string | null
   marketplace_mode?: MarketplaceMode
   query: string
   last_checked_at: string | null
@@ -34,11 +35,12 @@ export interface MonitorRow {
 export interface MonitorWithSearch extends MonitorRow {
   searches: SearchRow | null
   olx_searches?: SearchRow | null
+  enjoei_searches?: SearchRow | null
 }
 
-/** PostgREST needs explicit FK when monitors has search_id + olx_search_id. */
+/** PostgREST needs explicit FK when monitors has multiple search FKs. */
 export const MONITOR_LIST_SELECT =
-  '*, searches!search_id(*), olx_searches:searches!olx_search_id(*)'
+  '*, searches!search_id(*), olx_searches:searches!olx_search_id(*), enjoei_searches:searches!enjoei_search_id(*)'
 
 export function normalizeQuery(query: string): string {
   return query.trim().toLowerCase()

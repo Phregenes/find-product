@@ -90,17 +90,19 @@ function useNow() {
 // ─── Product Card ─────────────────────────────────────────────────────────────
 
 function MarketplaceBadge({ marketplace, className = '' }: { marketplace: Marketplace; className?: string }) {
-  const isOlx = marketplace === 'olx'
+  const styles =
+    marketplace === 'olx'
+      ? 'bg-orange-500 text-white'
+      : marketplace === 'enjoei'
+        ? 'bg-pink-500 text-white'
+        : 'bg-yellow-400 text-zinc-900'
+  const label = marketplace === 'olx' ? 'OLX' : marketplace === 'enjoei' ? 'Enjoei' : 'ML'
   return (
     <span
-      className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide sm:text-[11px] ${
-        isOlx
-          ? 'bg-orange-500 text-white'
-          : 'bg-yellow-400 text-zinc-900'
-      } ${className}`}
+      className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide sm:text-[11px] ${styles} ${className}`}
       title={productMarketplaceLabel(marketplace)}
     >
-      {isOlx ? 'OLX' : 'ML'}
+      {label}
     </span>
   )
 }
@@ -739,7 +741,7 @@ export default function MonitorApp() {
             </div>
             <div className="flex flex-col gap-1.5">
               <h1 className="text-xl font-bold text-zinc-900 sm:text-2xl dark:text-white">
-                Monitore publicações novas no ML e OLX
+                Monitore publicações novas no ML, OLX e Enjoei
               </h1>
               <p className="max-w-xs text-sm text-zinc-500 sm:max-w-sm dark:text-zinc-400">
                 Adicione uma busca acima e o app avisa quando aparecer coisa nova.
@@ -817,7 +819,7 @@ export default function MonitorApp() {
             <div className="flex flex-wrap items-center gap-2">
               {showMarketplaceFilter && (
                 <div className="flex items-center gap-0.5 rounded-lg border border-zinc-200 p-0.5 dark:border-zinc-700">
-                  {(['all', 'ml', 'olx'] as const).map((val) => (
+                  {(['all', 'ml', 'olx', 'enjoei'] as const).map((val) => (
                     <button
                       key={val}
                       type="button"
@@ -828,7 +830,7 @@ export default function MonitorApp() {
                           : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400'
                       }`}
                     >
-                      {val === 'all' ? 'Todos' : val === 'ml' ? 'ML' : 'OLX'}
+                      {val === 'all' ? 'Todos' : val === 'ml' ? 'ML' : val === 'olx' ? 'OLX' : 'Enjoei'}
                     </button>
                   ))}
                 </div>
@@ -884,7 +886,7 @@ export default function MonitorApp() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <p>
-              <strong>{viewState.products.length} anúncios</strong> da primeira página (ML e/ou OLX).
+              <strong>{viewState.products.length} anúncios</strong> da primeira página (ML, OLX e/ou Enjoei).
               O cron completa com mais páginas em até{' '}
               {formatCheckInterval(planUsage?.plan.checkIntervalMinutes ?? 1440)} — depois destacamos só o que for{' '}
               <strong>novo</strong>.
@@ -914,7 +916,7 @@ export default function MonitorApp() {
                   Aguardando primeira varredura
                 </p>
                 <p className="max-w-sm text-xs text-zinc-500 dark:text-zinc-400">
-                  Não foi possível buscar agora (ML/OLX podem bloquear scrape automático).
+                  Não foi possível buscar agora (ML/OLX/Enjoei podem bloquear scrape automático).
                   O cron tenta de novo {formatCheckInterval(planUsage?.plan.checkIntervalMinutes ?? 1440)}.
                 </p>
                 <button
@@ -949,7 +951,13 @@ export default function MonitorApp() {
         {!viewState.loading && viewState.products.length > 0 && displayedProducts.length === 0 && (
           <div className="flex flex-col items-center gap-3 rounded-xl border border-zinc-100 bg-white px-4 py-10 text-center dark:border-zinc-800 dark:bg-zinc-900">
             <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
-              Nenhum anúncio do {marketplaceViewFilter === 'ml' ? 'Mercado Livre' : 'OLX'} nesta lista
+              Nenhum anúncio do{' '}
+              {marketplaceViewFilter === 'ml'
+                ? 'Mercado Livre'
+                : marketplaceViewFilter === 'olx'
+                  ? 'OLX'
+                  : 'Enjoei'}{' '}
+              nesta lista
             </p>
             <button
               type="button"

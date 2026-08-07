@@ -56,6 +56,27 @@ if (useProxy) {
   delete process.env.AWS_LAMBDA_FUNCTION_NAME
 }
 
+async function ensureFonts(): Promise<void> {
+  if (process.platform !== 'darwin') return
+  try {
+    const { ensureMacScrapeFonts } = await import('./ensure-mac-scrape-fonts.mjs')
+    const fonts = ensureMacScrapeFonts() as {
+      patch?: { ok?: boolean; already?: boolean; reason?: string }
+    }
+    if (fonts.patch?.already) {
+      // quiet on subsequent runs
+    } else if (fonts.patch?.ok) {
+      console.log(
+        '[cron:worker] Playwright patchado: usa Hiragino/Helvetica no lugar de Osaka/STHeiti',
+      )
+    } else if (fonts.patch?.reason) {
+      console.warn('[cron:worker] patch de fontes falhou:', fonts.patch.reason)
+    }
+  } catch (err) {
+    console.warn('[cron:worker] não foi possível patchar fontes do Playwright:', err)
+  }
+}
+
 async function runOnce(): Promise<void> {
   const started = new Date().toISOString()
   const mode = useProxy ? 'IPRoyal proxy' : 'IP local, sem proxy'
@@ -74,6 +95,8 @@ async function runOnce(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  await ensureFonts()
+
   if (loop) {
     console.log(`[cron:worker] loop — a cada ${Math.round(intervalMs / 60_000)} min`)
     await runOnce()
@@ -86,7 +109,8 @@ async function main(): Promise<void> {
   await runOnce()
 }
 
-main().catch((err) => {
-  console.error('[cron:worker]', err)
+main().catch(async (err) => {
+  const { toErrorMessage } = await import('@/lib/error-message')
+  console.error('[cron:worker]', toErrorMessage(err))
   process.exit(1)
 })

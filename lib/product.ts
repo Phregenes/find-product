@@ -24,11 +24,14 @@ export interface Product {
 
 export type SortBy = 'relevance' | 'recent'
 export type Condition = 'all' | 'new' | 'used'
-export type Marketplace = 'ml' | 'olx'
-export type MarketplaceMode = 'ml' | 'olx' | 'both'
+export type Marketplace = 'ml' | 'olx' | 'enjoei'
+export type MarketplaceMode = 'ml' | 'olx' | 'enjoei' | 'both'
 
 /** Mercado Livre lists 48 items per results page. */
 export const ML_PAGE_STEP = 48
 
 /** OLX lists ~50 items per page on desktop search. */
 export const OLX_PAGE_STEP = 50
+
+/** Enjoei GraphQL page size used by the scraper. */
+export const ENJOEI_PAGE_STEP = 48

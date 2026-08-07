@@ -9,13 +9,15 @@ export function getSiteUrl(): string {
 export const SITE_NAME = 'FindProduct'
 
 export const SITE_DESCRIPTION =
-  'Monitore buscas no Mercado Livre e na OLX, com filtros inteligentes e alertas de anúncios novos. Ideal para revendedores, lojistas e garimpeiros.'
+  'Monitore buscas no Mercado Livre, OLX e Enjoei, com filtros inteligentes e alertas de anúncios novos. Ideal para revendedores, lojistas e garimpeiros.'
 
 export const SITE_KEYWORDS = [
   'mercado livre',
   'olx',
+  'enjoei',
   'monitoramento mercado livre',
   'monitoramento olx',
+  'monitoramento enjoei',
   'alerta anúncios novos',
   'revenda mercado livre',
   'garimpo mercado livre',

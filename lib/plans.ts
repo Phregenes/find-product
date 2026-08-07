@@ -5,7 +5,7 @@
  * - clientRefreshMinutes → min interval to re-read DB while the app is open
  * - activeHourStart/End → BRT window when scraping is allowed
  * - emailAlerts → cron sends email when new listings appear (Lojista+)
- * - olxAccess → OLX and ML+OLX monitors (Lojista+)
+ * - olxAccess → OLX, Enjoei and ML+OLX+Enjoei monitors (Lojista+)
  *
  * New signups get `free`. Paid tiers: garimpo, lojista, pro.
  * Per-user plan is stored in `profiles.plan` (Supabase).
