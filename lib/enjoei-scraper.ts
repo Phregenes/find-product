@@ -70,20 +70,19 @@ function formatPrice(value: number | null | undefined): { price: string; priceNu
   return { price: formatted, priceNumber }
 }
 
-/** Enjoei stores photo ids as base64(s3://photos.enjoei.com.br/...). */
-export function enjoeiPhotoUrl(imagePublicId: string | null | undefined): string {
+/**
+ * Enjoei CDN expects the raw `image_public_id` (base64 of s3://...), not the decoded path:
+ * `https://photos.enjoei.com.br/public/{size}/{image_public_id}`
+ */
+export function enjoeiPhotoUrl(
+  imagePublicId: string | null | undefined,
+  size: string = '500x500',
+): string {
   if (!imagePublicId) return ''
-  try {
-    const pad = '='.repeat((4 - (imagePublicId.length % 4)) % 4)
-    const decoded = Buffer.from(imagePublicId + pad, 'base64').toString('utf8')
-    if (decoded.startsWith('s3://photos.enjoei.com.br/')) {
-      return `https://photos.enjoei.com.br/${decoded.slice('s3://photos.enjoei.com.br/'.length)}`
-    }
-    if (decoded.startsWith('http')) return decoded
-  } catch {
-    /* ignore */
-  }
-  return ''
+  if (/^https?:\/\//i.test(imagePublicId)) return imagePublicId
+  // Already a full enjuphotos URL
+  if (/photos\.enjoei\.com\.br\//i.test(imagePublicId)) return imagePublicId
+  return `https://photos.enjoei.com.br/public/${size}/${imagePublicId}`
 }
 
 function nodeToProduct(node: EnjoeiNode): Product | null {

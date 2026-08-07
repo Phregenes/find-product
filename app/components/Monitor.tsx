@@ -15,7 +15,7 @@ import CreateMonitorModal, { type CreateMonitorOptions } from '@/app/components/
 import MonitorDetailsModal from '@/app/components/MonitorDetailsModal'
 import DeleteMonitorModal from '@/app/components/DeleteMonitorModal'
 import { filterModeLabel } from '@/lib/monitor-filter'
-import { marketplaceModeLabel, inferProductMarketplace, productMarketplaceLabel, productImageReferrerPolicy } from '@/lib/marketplace'
+import { marketplaceModeLabel, inferProductMarketplace, productMarketplaceLabel, productImageReferrerPolicy, normalizeProductImageUrl } from '@/lib/marketplace'
 import type { Marketplace } from '@/lib/product'
 import { createClient } from '@/lib/supabase/client'
 import type { Product } from '@/lib/product'
@@ -136,7 +136,7 @@ function ProductCard({ product, isNew }: { product: Product; isNew: boolean }) {
         {product.image ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={product.image}
+            src={normalizeProductImageUrl(product.image)}
             alt={product.title}
             referrerPolicy={productImageReferrerPolicy(product.image)}
             className="h-full w-full object-contain p-2 transition group-hover:scale-105 sm:p-3"

@@ -79,6 +79,24 @@ export function productImageReferrerPolicy(imageUrl: string): 'no-referrer' | un
   return undefined
 }
 
+/**
+ * Rewrite legacy Enjoei image URLs (decoded S3 path → 404) to the CDN format
+ * `…/public/{size}/{base64(s3://…)}` used by enjuphotos.
+ */
+export function normalizeProductImageUrl(imageUrl: string): string {
+  if (!imageUrl) return imageUrl
+  const legacy = imageUrl.match(
+    /^https?:\/\/photos\.enjoei\.com\.br\/((?:products|users)\/[^\s?#]+)$/i,
+  )
+  if (!legacy) return imageUrl
+  const s3 = `s3://photos.enjoei.com.br/${legacy[1]}`
+  const b64 =
+    typeof Buffer !== 'undefined'
+      ? Buffer.from(s3, 'utf8').toString('base64')
+      : btoa(s3)
+  return `https://photos.enjoei.com.br/public/500x500/${b64.replace(/=+$/, '')}`
+}
+
 export function newProductsEmailHeadline(mode: MarketplaceMode): string {
   if (mode === 'olx') return 'Novos anúncios na OLX'
   if (mode === 'enjoei') return 'Novos anúncios no Enjoei'
