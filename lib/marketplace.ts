@@ -1,4 +1,9 @@
 import type { Marketplace, MarketplaceMode, Product } from './product'
+import {
+  type PlanConfig,
+  defaultMarketplaceMode,
+  planAllowsMarketplaceMode,
+} from './plans'
 
 export const MARKETPLACE_MODE_OPTIONS: Array<{
   id: MarketplaceMode
@@ -32,18 +37,17 @@ export function parseMarketplaceMode(value: unknown): MarketplaceMode {
   return 'ml'
 }
 
-/** OLX / Enjoei / combo — requires Lojista+ (`olxAccess`). */
 export function marketplaceModeRequiresOlx(mode: MarketplaceMode): boolean {
   return mode === 'olx' || mode === 'enjoei' || mode === 'both'
 }
 
-/** Downgrade to ML-only when the user's plan does not include extra marketplaces. */
+/** Clamp to a mode the plan actually allows. */
 export function normalizeMarketplaceModeForPlan(
   mode: MarketplaceMode,
-  olxAccess: boolean,
+  plan: PlanConfig,
 ): MarketplaceMode {
-  if (!olxAccess && marketplaceModeRequiresOlx(mode)) return 'ml'
-  return mode
+  if (planAllowsMarketplaceMode(plan, mode)) return mode
+  return defaultMarketplaceMode(plan)
 }
 
 export function marketplaceModeLabel(mode: MarketplaceMode): string {

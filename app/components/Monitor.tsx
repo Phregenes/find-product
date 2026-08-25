@@ -20,7 +20,7 @@ import type { Marketplace } from '@/lib/product'
 import { createClient } from '@/lib/supabase/client'
 import type { Product } from '@/lib/product'
 import type { PlanConfig } from '@/lib/plans'
-import { formatCheckInterval, formatRefreshMinutes } from '@/lib/plans'
+import { formatCheckInterval, formatPlanFrequency, formatRefreshMinutes } from '@/lib/plans'
 
 interface PlanUsage {
   plan: PlanConfig
@@ -767,7 +767,7 @@ export default function MonitorApp() {
             </div>
             <div className="flex flex-col gap-1.5">
               <h1 className="text-xl font-bold text-zinc-900 sm:text-2xl dark:text-white">
-                Monitore publicações novas no ML, OLX e Enjoei
+                Monitore publicações novas na OLX, Enjoei e ML
               </h1>
               <p className="max-w-xs text-sm text-zinc-500 sm:max-w-sm dark:text-zinc-400">
                 Adicione uma busca acima e o app avisa quando aparecer coisa nova.
@@ -889,7 +889,7 @@ export default function MonitorApp() {
               </button>
 
               <span className="ml-auto text-[11px] text-zinc-400 sm:hidden">
-                Cron {formatCheckInterval(planUsage?.plan.checkIntervalMinutes ?? intervalMin)}
+                Cron {planUsage ? formatPlanFrequency(planUsage.plan) : formatCheckInterval(intervalMin)}
               </span>
             </div>
           </div>
@@ -914,7 +914,7 @@ export default function MonitorApp() {
             <p>
               <strong>{viewState.products.length} anúncios</strong> da primeira página (ML, OLX e/ou Enjoei).
               O cron completa com mais páginas em até{' '}
-              {formatCheckInterval(planUsage?.plan.checkIntervalMinutes ?? 1440)} — depois destacamos só o que for{' '}
+              {planUsage ? formatPlanFrequency(planUsage.plan) : formatCheckInterval(1440)} — depois destacamos só o que for{' '}
               <strong>novo</strong>.
             </p>
           </div>
@@ -943,7 +943,7 @@ export default function MonitorApp() {
                 </p>
                 <p className="max-w-sm text-xs text-zinc-500 dark:text-zinc-400">
                   Não foi possível buscar agora (ML/OLX/Enjoei podem bloquear scrape automático).
-                  O cron tenta de novo {formatCheckInterval(planUsage?.plan.checkIntervalMinutes ?? 1440)}.
+                  O cron tenta de novo {planUsage ? formatPlanFrequency(planUsage.plan) : formatCheckInterval(1440)}.
                 </p>
                 <button
                   onClick={() => fetchProducts(activeMonitor, { force: true })}
@@ -1111,10 +1111,9 @@ export default function MonitorApp() {
         open={createModalOpen}
         initialQuery={createModalQuery}
         atLimit={atMonitorLimit}
+        plan={planUsage?.plan}
         planName={planUsage?.plan.name}
         monitorLimit={planUsage?.monitorLimit}
-        planEmailAlerts={planUsage?.plan.emailAlerts}
-        planOlxAccess={planUsage?.plan.olxAccess}
         dailyCreationLimit={planUsage?.dailyCreationLimit}
         remainingCreationsToday={planUsage?.remainingCreationsToday}
         onClose={() => setCreateModalOpen(false)}

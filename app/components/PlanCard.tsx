@@ -2,7 +2,8 @@ import Link from 'next/link'
 import {
   type PlanConfig,
   formatPlanPrice,
-  formatCheckInterval,
+  formatPlanFrequency,
+  formatPlanMarketplaces,
   formatActiveHours,
   isPaidPlan,
 } from '@/lib/plans'
@@ -51,31 +52,23 @@ export default function PlanCard({
         <li className="flex items-start gap-2">
           <CheckIcon />
           <span>
-            {plan.olxAccess ? (
-              <>
-                <strong>Mercado Livre + OLX + Enjoei</strong>
-              </>
-            ) : (
-              <>
-                Apenas <strong>Mercado Livre</strong>
-              </>
-            )}
+            <strong>{formatPlanMarketplaces(plan)}</strong>
           </span>
         </li>
-        <li className="flex items-start gap-2">
-          <CheckIcon />
-          <span>
-            Filtros de relevância, condição e palavras a ignorar
-          </span>
-        </li>
+        {plan.customFilters && (
+          <li className="flex items-start gap-2">
+            <CheckIcon />
+            <span>Filtros de relevância, condição e palavras a ignorar</span>
+          </li>
+        )}
         <li className="flex items-start gap-2">
           <CheckIcon />
           <span>
             Busca automática no servidor{' '}
-            <strong>{formatCheckInterval(plan.checkIntervalMinutes)}</strong>
+            <strong>{formatPlanFrequency(plan)}</strong>
           </span>
         </li>
-        {paid && (
+        {(plan.id === 'lojista' || plan.id === 'pro') && (
           <li className="flex items-start gap-2">
             <CheckIcon />
             <span>
@@ -83,7 +76,7 @@ export default function PlanCard({
             </span>
           </li>
         )}
-        {paid && (
+        {(plan.id === 'lojista' || plan.id === 'pro') && (
           <li className="flex items-start gap-2">
             <CheckIcon />
             <span>

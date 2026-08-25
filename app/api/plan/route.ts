@@ -33,7 +33,10 @@ export async function GET() {
       activeHourEnd: p.activeHourEnd,
       tagline: p.tagline,
       emailAlerts: p.emailAlerts,
+      mlAccess: p.mlAccess,
       olxAccess: p.olxAccess,
+      enjoeiAccess: p.enjoeiAccess,
+      customFilters: p.customFilters,
     })),
   })
 }

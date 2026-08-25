@@ -4,13 +4,16 @@
  * - checkIntervalMinutes → how often the CRON scrapes (server, tab closed)
  * - clientRefreshMinutes → min interval to re-read DB while the app is open
  * - activeHourStart/End → BRT window when scraping is allowed
- * - emailAlerts → cron sends email when new listings appear (Lojista+)
- * - olxAccess → OLX, Enjoei and ML+OLX+Enjoei monitors (Lojista+)
+ * - emailAlerts → cron sends email when new listings appear
+ * - mlAccess / olxAccess / enjoeiAccess → which marketplaces the plan may monitor
+ * - customFilters → title relevance, condition, exclude terms
  *
  * New signups get `free`. Paid tiers: garimpo, lojista, pro.
  * Per-user plan is stored in `profiles.plan` (Supabase).
  * Cron is triggered externally (e.g. cron-job.org); each monitor is scraped per checkIntervalMinutes below.
  */
+
+import type { MarketplaceMode } from '@/lib/product'
 
 export type PlanId = 'free' | 'garimpo' | 'lojista' | 'pro'
 
@@ -32,13 +35,20 @@ export interface PlanConfig {
   tagline: string
   /** Whether this plan sends new-listing alerts by email (cron). */
   emailAlerts: boolean
-  /** OLX and ML+OLX monitors (Lojista and Pro). */
+  mlAccess: boolean
   olxAccess: boolean
+  enjoeiAccess: boolean
+  /** Title filters, condition, and exclude terms. */
+  customFilters: boolean
+  /** How often we advertise the cron (may differ from 24h ÷ interval). */
+  cadenceLabel: string
 }
 
 export const DEFAULT_PLAN_ID: PlanId = 'free'
 
 export const PAID_PLAN_IDS: PaidPlanId[] = ['garimpo', 'lojista', 'pro']
+
+const THREE_DAYS_MINUTES = 4320
 
 export const PLANS: Record<PlanId, PlanConfig> = {
   free: {
@@ -46,52 +56,68 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     name: 'Grátis',
     priceMonthly: 0,
     monitorLimit: 1,
-    checkIntervalMinutes: 1440,
+    checkIntervalMinutes: THREE_DAYS_MINUTES,
     clientRefreshMinutes: 1440,
     activeHourStart: 0,
     activeHourEnd: 24,
-    tagline: 'Experimente com 1 monitor antes de assinar.',
+    tagline: 'Experimente 1 monitor na OLX, a cada 3 dias.',
     emailAlerts: false,
-    olxAccess: false,
+    mlAccess: false,
+    olxAccess: true,
+    enjoeiAccess: false,
+    customFilters: false,
+    cadenceLabel: '1× a cada 3 dias',
   },
   garimpo: {
     id: 'garimpo',
     name: 'Garimpo',
-    priceMonthly: 49,
-    monitorLimit: 3,
-    checkIntervalMinutes: 480,
-    clientRefreshMinutes: 30,
-    activeHourStart: 8,
-    activeHourEnd: 20,
-    tagline: 'Para quem garimpa oportunidades no dia a dia.',
-    emailAlerts: false,
-    olxAccess: false,
+    priceMonthly: 19,
+    monitorLimit: 4,
+    checkIntervalMinutes: 1440,
+    clientRefreshMinutes: 60,
+    activeHourStart: 0,
+    activeHourEnd: 24,
+    tagline: 'OLX e Enjoei todo dia, com alerta por e-mail.',
+    emailAlerts: true,
+    mlAccess: false,
+    olxAccess: true,
+    enjoeiAccess: true,
+    customFilters: true,
+    cadenceLabel: '1× ao dia',
   },
   lojista: {
     id: 'lojista',
     name: 'Lojista',
-    priceMonthly: 129,
+    priceMonthly: 79,
     monitorLimit: 8,
     checkIntervalMinutes: 240,
     clientRefreshMinutes: 30,
     activeHourStart: 8,
     activeHourEnd: 20,
-    tagline: 'Mais monitores e atualizações frequentes.',
+    tagline: 'OLX e Enjoei — 8 monitores, 3× ao dia.',
     emailAlerts: true,
+    mlAccess: false,
     olxAccess: true,
+    enjoeiAccess: true,
+    customFilters: true,
+    cadenceLabel: '3× ao dia',
   },
   pro: {
     id: 'pro',
     name: 'Pro',
-    priceMonthly: 249,
+    priceMonthly: 149,
     monitorLimit: 15,
     checkIntervalMinutes: 60,
     clientRefreshMinutes: 15,
     activeHourStart: 0,
     activeHourEnd: 24,
-    tagline: 'Máxima cobertura para operação profissional.',
+    tagline: 'Mercado Livre + OLX + Enjoei, de hora em hora, 24h.',
     emailAlerts: true,
+    mlAccess: true,
     olxAccess: true,
+    enjoeiAccess: true,
+    customFilters: true,
+    cadenceLabel: 'a cada 1 hora',
   },
 }
 
@@ -104,6 +130,40 @@ export function getPlanConfig(planId: string | null | undefined): PlanConfig {
 
 export function isPaidPlan(planId: PlanId): planId is PaidPlanId {
   return planId !== 'free'
+}
+
+export function planAllowsMarketplaceMode(
+  plan: PlanConfig,
+  mode: MarketplaceMode,
+): boolean {
+  switch (mode) {
+    case 'ml':
+      return plan.mlAccess
+    case 'olx':
+      return plan.olxAccess
+    case 'enjoei':
+      return plan.enjoeiAccess
+    case 'both':
+      return plan.mlAccess && plan.olxAccess && plan.enjoeiAccess
+  }
+}
+
+export function defaultMarketplaceMode(plan: PlanConfig): MarketplaceMode {
+  if (planAllowsMarketplaceMode(plan, 'both')) return 'both'
+  if (plan.olxAccess) return 'olx'
+  if (plan.enjoeiAccess) return 'enjoei'
+  if (plan.mlAccess) return 'ml'
+  return 'olx'
+}
+
+export function formatPlanMarketplaces(plan: PlanConfig): string {
+  const names: string[] = []
+  if (plan.mlAccess) names.push('Mercado Livre')
+  if (plan.olxAccess) names.push('OLX')
+  if (plan.enjoeiAccess) names.push('Enjoei')
+  if (names.length === 0) return 'Nenhum marketplace'
+  if (names.length === 3) return 'Mercado Livre + OLX + Enjoei'
+  return names.join(' + ')
 }
 
 export function planSupportsOlx(planId: PlanId | string | null | undefined): boolean {
@@ -120,8 +180,9 @@ export function formatPlanPrice(plan: PlanConfig): string {
   return `R$ ${plan.priceMonthly}/mês`
 }
 
-/** Human label for cron scrape cadence (checkIntervalMinutes). */
+/** Human label for cron scrape cadence (checkIntervalMinutes only). */
 export function formatCheckInterval(minutes: number): string {
+  if (minutes >= THREE_DAYS_MINUTES) return '1× a cada 3 dias'
   if (minutes >= 1440) return '1× ao dia'
   if (minutes === 480) return '3× ao dia'
   if (minutes === 240) return '6× ao dia'
@@ -134,13 +195,18 @@ export function formatCheckInterval(minutes: number): string {
   return `a cada ${minutes} min`
 }
 
+/** Cadence as the user sees it (respects the BRT active window). */
+export function formatPlanFrequency(plan: PlanConfig): string {
+  return plan.cadenceLabel
+}
+
 /** Max ML/OLX pages per cron run for this plan (proxy cost control). */
 export function cronScrapeMaxPages(planId: PlanId): number {
   switch (planId) {
     case 'free':
       return 1
     case 'garimpo':
-      return 2
+      return 1
     case 'lojista':
       return 2
     case 'pro':
@@ -151,6 +217,7 @@ export function cronScrapeMaxPages(planId: PlanId): number {
 }
 
 export function formatRefreshMinutes(minutes: number): string {
+  if (minutes >= THREE_DAYS_MINUTES) return '1× a cada 3 dias'
   if (minutes >= 1440) return '1× ao dia'
   if (minutes >= 60) return `${Math.round(minutes / 60)}h`
   return `${minutes} min`

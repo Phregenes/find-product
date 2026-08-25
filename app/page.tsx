@@ -1,5 +1,10 @@
 import Link from 'next/link'
+import Image from 'next/image'
 import SiteHeader from '@/app/components/SiteHeader'
+import SiteFooter from '@/app/components/SiteFooter'
+import Testimonials, { FaqList } from '@/app/components/Testimonials'
+import { HOME_FAQ, HOME_PHOTOS } from '@/lib/marketing'
+import { PLAN_LIST, formatPlanPrice, formatPlanFrequency, formatPlanMarketplaces } from '@/lib/plans'
 
 export default function HomePage() {
   return (
@@ -7,279 +12,244 @@ export default function HomePage() {
       <SiteHeader />
 
       <main>
-        {/* Hero */}
-        <section className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
-          <div className="mx-auto max-w-3xl text-center">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-yellow-200 bg-yellow-50 px-3 py-1 text-xs font-medium text-yellow-800 dark:border-yellow-900/40 dark:bg-yellow-950/30 dark:text-yellow-300">
-              <span className="h-1.5 w-1.5 rounded-full bg-yellow-500" />
-              Mercado Livre, OLX e Enjoei em um só lugar
-            </div>
-
-            <h1 className="text-4xl font-bold tracking-tight text-zinc-900 sm:text-5xl dark:text-white">
-              Não perca mais um{' '}
-              <span className="text-yellow-500">anúncio novo</span>
-            </h1>
-
-            <p className="mt-5 text-lg text-zinc-600 dark:text-zinc-400">
-              FindProduct monitora suas buscas no Mercado Livre (e na OLX/Enjoei nos planos Lojista+),
-              aplica filtros inteligentes e avisa quando surgem publicações novas — ideal para
-              revendedores, lojistas e garimpeiros.
+        <section className="mx-auto grid max-w-6xl items-center gap-10 px-4 py-12 sm:px-6 lg:grid-cols-2 lg:py-16">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500">
+              OLX agora · Enjoei no Garimpo · Mercado Livre no Pro
             </p>
-
-            <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <h1 className="mt-3 text-4xl font-bold tracking-tight text-zinc-900 sm:text-5xl dark:text-white">
+              O anúncio bom some em minutos. A gente fica de olho.
+            </h1>
+            <p className="mt-5 text-base leading-relaxed text-zinc-600 sm:text-lg dark:text-zinc-400">
+              Você monta a busca uma vez. O FindProduct varre o site, marca o que já passou e te
+              mostra só o que acabou de entrar — sem ficar atualizando a OLX no intervalo do almoço.
+            </p>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Link
                 href="/register"
-                className="w-full rounded-xl bg-yellow-400 px-6 py-3 text-sm font-semibold text-zinc-900 transition hover:bg-yellow-300 sm:w-auto"
+                className="rounded-xl bg-yellow-400 px-6 py-3 text-center text-sm font-semibold text-zinc-900 transition hover:bg-yellow-300"
               >
-                Criar conta grátis
+                Começar de graça na OLX
               </Link>
               <Link
                 href="/planos"
-                className="w-full rounded-xl border border-zinc-200 bg-white px-6 py-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 sm:w-auto dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                className="rounded-xl border border-zinc-200 bg-white px-6 py-3 text-center text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
               >
-                Ver planos
+                Ver preços
               </Link>
             </div>
-
-            <p className="mt-4 text-xs text-zinc-400">
-              Conta grátis com 1 monitor no ML · OLX e Enjoei a partir do plano Lojista
+            <p className="mt-4 text-xs text-zinc-500">
+              Grátis: 1 monitor, só OLX, a cada 3 dias. Sem cartão. Planos pagos a partir de R$ 19.
             </p>
           </div>
-        </section>
 
-        {/* Features */}
-        <section className="border-y border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="mx-auto grid max-w-6xl gap-8 px-4 py-16 sm:grid-cols-2 lg:grid-cols-4 sm:px-6">
-            <Feature
-              title="ML, OLX e Enjoei"
-              description="Monitore só o Mercado Livre ou combine ML + OLX + Enjoei na mesma busca. OLX e Enjoei no plano Lojista em diante."
-              icon={
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              }
-            />
-            <Feature
-              title="Filtros avançados"
-              description="Relevância do título (padrão, todas as palavras, frase exata, inteligente), condição novo/usado e palavras a ignorar."
-              icon={
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-              }
-            />
-            <Feature
-              title="Alerta de novidades"
-              description="O app marca o que você já viu e destaca publicações novas. Planos Lojista+ também avisam por e-mail."
-              icon={
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-              }
-            />
-            <Feature
-              title="Varredura profunda"
-              description="Nos planos pagos, o cron varre até 2–3 páginas por monitor — o suficiente para pegar novidades sem estourar banda."
-              icon={
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-              }
-            />
+          <div className="relative">
+            <div className="overflow-hidden rounded-3xl border border-zinc-200 shadow-xl dark:border-zinc-800">
+              <Image
+                src={HOME_PHOTOS.hero.src}
+                alt={HOME_PHOTOS.hero.alt}
+                width={800}
+                height={640}
+                priority
+                className="h-[380px] w-full object-cover sm:h-[440px]"
+              />
+            </div>
+            <div className="absolute bottom-4 left-4 right-4 rounded-2xl border border-white/20 bg-zinc-950/85 p-4 text-white backdrop-blur-sm sm:left-auto sm:right-6 sm:w-72">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-green-400">
+                Novo agora · OLX
+              </p>
+              <p className="mt-1 text-sm font-medium">iPhone 13 128GB — seminovo</p>
+              <p className="mt-1 text-xs text-zinc-300">R$ 2.150 · Savassi, Belo Horizonte</p>
+            </div>
           </div>
         </section>
 
-        {/* How it works */}
-        <section className="border-t border-zinc-200 bg-zinc-100/60 dark:border-zinc-800 dark:bg-zinc-900/40">
-          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
-            <div className="mx-auto max-w-2xl text-center">
-              <p className="text-xs font-semibold uppercase tracking-widest text-yellow-600 dark:text-yellow-400">
-                Em 3 passos
+        <section className="border-y border-zinc-200 bg-white py-16 dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6">
+            <h2 className="text-2xl font-bold text-zinc-900 sm:text-3xl dark:text-white">
+              Feito para quem compra usado de verdade
+            </h2>
+            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+              Não é feed de “oferta”. É o mesmo anúncio que você caça na OLX — só que o sistema
+              olha de novo quando você não pode.
+            </p>
+            <div className="mt-10 grid gap-6 lg:grid-cols-3">
+              <AudienceCard
+                image={HOME_PHOTOS.phone}
+                title="Quem garimpa no celular"
+                body="Um monitor no grátis já mostra se a ferramenta serve. Se servir, Garimpo (R$ 19) coloca Enjoei, e-mail e 4 buscas."
+              />
+              <AudienceCard
+                image={HOME_PHOTOS.listings}
+                title="Quem revende no fim de semana"
+                body="Filtro de título e palavras a ignorar a partir do Garimpo. Menos capa de celular no meio do resultado."
+              />
+              <AudienceCard
+                image={HOME_PHOTOS.used}
+                title="Quem tem loja aberta"
+                body="Lojista: 8 monitores, 3× ao dia, OLX e Enjoei, das 8h às 20h. Mercado Livre fica no Pro, de hora em hora."
+              />
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
+          <div className="grid items-center gap-10 lg:grid-cols-2">
+            <div className="overflow-hidden rounded-3xl border border-zinc-200 dark:border-zinc-800">
+              <Image
+                src={HOME_PHOTOS.steps.src}
+                alt={HOME_PHOTOS.steps.alt}
+                width={800}
+                height={600}
+                className="h-[320px] w-full object-cover sm:h-[400px]"
+              />
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-yellow-700 dark:text-yellow-400">
+                Como funciona
               </p>
               <h2 className="mt-2 text-2xl font-bold text-zinc-900 sm:text-3xl dark:text-white">
-                Do cadastro ao primeiro alerta
+                Três passos. Sem planilha.
               </h2>
-              <p className="mt-3 text-sm text-zinc-600 sm:text-base dark:text-zinc-400">
-                Você configura uma vez; o FindProduct varre os marketplaces e mostra só o que mudou.
-              </p>
-            </div>
-
-            <ol className="relative mt-12 grid gap-8 lg:grid-cols-3 lg:gap-6">
-              <div
-                aria-hidden
-                className="pointer-events-none absolute left-[16.67%] right-[16.67%] top-10 hidden h-px bg-gradient-to-r from-transparent via-yellow-400/60 to-transparent lg:block"
-              />
-
-              <HowItWorksStep
-                step={1}
-                title="Crie sua conta"
-                summary="Grátis e em menos de um minuto — sem cartão."
-                icon={
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                }
-                highlights={[
-                  '1 monitor no Mercado Livre no plano grátis',
-                  'Upgrade quando precisar de mais cobertura',
-                ]}
-              />
-              <HowItWorksStep
-                step={2}
-                title="Monte o monitor"
-                summary="Defina exatamente o que vale a pena ver no feed."
-                icon={
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-                }
-                highlights={[
-                  'Mercado Livre — ou OLX/Enjoei no plano Lojista+',
-                  'Condição (novo/usado), relevância do título e exclusões',
-                ]}
-                badges={['ML', 'OLX', 'Enjoei']}
-              />
-              <HowItWorksStep
-                step={3}
-                title="Veja só o que é novo"
-                summary="O cron atualiza o catálogo; você entra e age rápido."
-                icon={
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                }
-                highlights={[
-                  'Anúncios novos destacados no app',
-                  'E-mail automático no plano Lojista+',
-                ]}
-                accent="Novo"
-              />
-            </ol>
-
-            <div className="mt-12 flex justify-center">
-              <Link
-                href="/register"
-                className="inline-flex items-center gap-2 rounded-xl bg-yellow-400 px-6 py-3 text-sm font-semibold text-zinc-900 transition hover:bg-yellow-300"
-              >
-                Começar grátis
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                </svg>
-              </Link>
+              <ol className="mt-8 space-y-6">
+                <li>
+                  <p className="text-sm font-semibold text-zinc-900 dark:text-white">1. Cria a conta</p>
+                  <p className="mt-1 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+                    Grátis, sem cartão. 1 monitor na OLX, a cada 3 dias.
+                  </p>
+                </li>
+                <li>
+                  <p className="text-sm font-semibold text-zinc-900 dark:text-white">2. Diz o que caçar</p>
+                  <p className="mt-1 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+                    Ex.: “nintendo switch”. No Garimpo você aperta o título, escolhe usado e tira
+                    “controle avulso” da lista.
+                  </p>
+                </li>
+                <li>
+                  <p className="text-sm font-semibold text-zinc-900 dark:text-white">3. Entra e vê o que é novo</p>
+                  <p className="mt-1 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+                    O cron roda no servidor. O app destaca o anúncio que não estava aí ontem. E-mail
+                    a partir do Garimpo.
+                  </p>
+                </li>
+              </ol>
             </div>
           </div>
         </section>
 
-        {/* CTA */}
-        <section className="mx-auto max-w-6xl px-4 pb-20 sm:px-6">
-          <div className="rounded-3xl bg-zinc-900 px-6 py-12 text-center sm:px-12 dark:bg-zinc-800">
-            <h2 className="text-2xl font-bold text-white">Pronto para garimpar?</h2>
-            <p className="mx-auto mt-3 max-w-md text-sm text-zinc-400">
-              Crie sua conta em segundos. Precisa de OLX, Enjoei, mais monitores ou e-mail? Veja o plano Lojista.
-            </p>
-            <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
+        <Testimonials />
+
+        <section className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-2xl font-bold text-zinc-900 sm:text-3xl dark:text-white">
+                Preço simples, sem pegadinha de ML no grátis
+              </h2>
+              <p className="mt-3 max-w-xl text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+                Mercado Livre não entra no Garimpo nem no Lojista. Se você precisa dos três sites,
+                o plano é o Pro.
+              </p>
+            </div>
+            <Link
+              href="/planos"
+              className="text-sm font-semibold text-yellow-700 hover:underline dark:text-yellow-400"
+            >
+              Comparar os quatro →
+            </Link>
+          </div>
+          <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {PLAN_LIST.map((plan) => (
               <Link
-                href="/register"
-                className="w-full rounded-xl bg-yellow-400 px-6 py-3 text-sm font-semibold text-zinc-900 transition hover:bg-yellow-300 sm:w-auto"
-              >
-                Criar conta grátis
-              </Link>
-              <Link
+                key={plan.id}
                 href="/planos"
-                className="w-full rounded-xl border border-zinc-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-zinc-700 sm:w-auto"
+                className={`rounded-2xl border p-5 transition hover:border-yellow-400 ${
+                  plan.id === 'lojista'
+                    ? 'border-yellow-400 bg-yellow-50/60 dark:bg-yellow-950/20'
+                    : 'border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900'
+                }`}
               >
-                Comparar planos
+                <p className="text-sm font-bold text-zinc-900 dark:text-white">{plan.name}</p>
+                <p className="mt-1 text-xl font-bold text-zinc-900 dark:text-white">
+                  {formatPlanPrice(plan)}
+                </p>
+                <p className="mt-3 text-xs leading-relaxed text-zinc-500">
+                  {formatPlanMarketplaces(plan)} · {formatPlanFrequency(plan)}
+                </p>
               </Link>
+            ))}
+          </div>
+        </section>
+
+        <section className="border-t border-zinc-200 bg-white py-16 dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="mx-auto max-w-3xl px-4 sm:px-6">
+            <h2 className="text-2xl font-bold text-zinc-900 dark:text-white">Perguntas que a gente ouve</h2>
+            <FaqList items={HOME_FAQ} />
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+          <div className="overflow-hidden rounded-3xl bg-zinc-900 sm:grid sm:grid-cols-2 dark:bg-zinc-800">
+            <div className="p-8 sm:p-12">
+              <h2 className="text-2xl font-bold text-white">Testa na OLX hoje. Paga só se valer a pena.</h2>
+              <p className="mt-3 text-sm leading-relaxed text-zinc-400">
+                Conta grátis em menos de um minuto. Se precisar de Enjoei, e-mail ou Mercado Livre,
+                o upgrade é pelo WhatsApp.
+              </p>
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                <Link
+                  href="/register"
+                  className="rounded-xl bg-yellow-400 px-5 py-2.5 text-center text-sm font-semibold text-zinc-900 hover:bg-yellow-300"
+                >
+                  Criar conta grátis
+                </Link>
+                <Link
+                  href="/planos"
+                  className="rounded-xl border border-zinc-600 px-5 py-2.5 text-center text-sm font-semibold text-white hover:bg-zinc-700"
+                >
+                  Ver planos
+                </Link>
+              </div>
+            </div>
+            <div className="relative min-h-[220px]">
+              <Image
+                src={HOME_PHOTOS.phone.src}
+                alt={HOME_PHOTOS.phone.alt}
+                fill
+                className="object-cover"
+                sizes="(min-width: 640px) 50vw, 100vw"
+              />
             </div>
           </div>
         </section>
       </main>
 
-      <footer className="mt-auto border-t border-zinc-200 py-6 text-center text-xs text-zinc-400 dark:border-zinc-800">
-        FindProduct · Monitoramento Mercado Livre, OLX e Enjoei ·{' '}
-        <Link href="/status" className="hover:text-zinc-600 dark:hover:text-zinc-300">
-          Status do sistema
-        </Link>
-      </footer>
+      <SiteFooter />
     </div>
   )
 }
 
-function HowItWorksStep({
-  step,
+function AudienceCard({
+  image,
   title,
-  summary,
-  icon,
-  highlights,
-  badges,
-  accent,
+  body,
 }: {
-  step: number
+  image: { src: string; alt: string }
   title: string
-  summary: string
-  icon: React.ReactNode
-  highlights: string[]
-  badges?: string[]
-  accent?: string
+  body: string
 }) {
   return (
-    <li className="relative flex flex-col rounded-2xl border border-zinc-200/80 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-yellow-400/20 text-yellow-600 dark:text-yellow-400">
-          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            {icon}
-          </svg>
-        </div>
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-sm font-bold text-white dark:bg-white dark:text-zinc-900">
-          {step}
-        </span>
+    <article className="overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-800">
+      <Image
+        src={image.src}
+        alt={image.alt}
+        width={640}
+        height={400}
+        className="h-44 w-full object-cover"
+      />
+      <div className="bg-zinc-50 p-5 dark:bg-zinc-950">
+        <h3 className="font-semibold text-zinc-900 dark:text-white">{title}</h3>
+        <p className="mt-2 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">{body}</p>
       </div>
-
-      <h3 className="mt-5 text-lg font-semibold text-zinc-900 dark:text-white">{title}</h3>
-      <p className="mt-1.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">{summary}</p>
-
-      <ul className="mt-4 flex flex-col gap-2">
-        {highlights.map((line) => (
-          <li key={line} className="flex items-start gap-2 text-sm text-zinc-500 dark:text-zinc-400">
-            <svg className="mt-0.5 h-4 w-4 shrink-0 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-            <span>{line}</span>
-          </li>
-        ))}
-      </ul>
-
-      {(badges || accent) && (
-        <div className="mt-5 flex flex-wrap gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-          {badges?.map((badge) => (
-            <span
-              key={badge}
-              className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                badge === 'OLX'
-                  ? 'bg-orange-500 text-white'
-                  : badge === 'Enjoei'
-                    ? 'bg-pink-500 text-white'
-                    : 'bg-yellow-400 text-zinc-900'
-              }`}
-            >
-              {badge}
-            </span>
-          ))}
-          {accent && (
-            <span className="rounded-full bg-green-500 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-              {accent}
-            </span>
-          )}
-        </div>
-      )}
-    </li>
-  )
-}
-
-function Feature({
-  title,
-  description,
-  icon,
-}: {
-  title: string
-  description: string
-  icon: React.ReactNode
-}) {
-  return (
-    <div className="flex flex-col items-center text-center sm:items-start sm:text-left">
-      <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-yellow-400/20 text-yellow-600 dark:text-yellow-400">
-        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          {icon}
-        </svg>
-      </div>
-      <h3 className="font-semibold text-zinc-900 dark:text-white">{title}</h3>
-      <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">{description}</p>
-    </div>
+    </article>
   )
 }

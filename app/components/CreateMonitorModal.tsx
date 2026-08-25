@@ -7,7 +7,13 @@ import {
   type MonitorFilterMode,
   parseExcludeTermsInput,
 } from '@/lib/monitor-filter'
-import { MARKETPLACE_MODE_OPTIONS, normalizeMarketplaceModeForPlan, marketplaceModeRequiresOlx } from '@/lib/marketplace'
+import { MARKETPLACE_MODE_OPTIONS, normalizeMarketplaceModeForPlan } from '@/lib/marketplace'
+import {
+  PLANS,
+  type PlanConfig,
+  defaultMarketplaceMode,
+  planAllowsMarketplaceMode,
+} from '@/lib/plans'
 
 export interface CreateMonitorOptions {
   query: string
@@ -22,33 +28,38 @@ interface CreateMonitorModalProps {
   open: boolean
   initialQuery: string
   atLimit: boolean
+  plan?: PlanConfig
   planName?: string
   monitorLimit?: number
-  planEmailAlerts?: boolean
-  planOlxAccess?: boolean
   dailyCreationLimit?: number
   remainingCreationsToday?: number
   onClose: () => void
   onSubmit: (options: CreateMonitorOptions) => void | Promise<void>
 }
 
+function marketplaceLockLabel(optionId: MarketplaceMode): string {
+  if (optionId === 'ml' || optionId === 'both') return 'Pro'
+  if (optionId === 'enjoei') return 'Garimpo+'
+  return ''
+}
+
 export default function CreateMonitorModal({
   open,
   initialQuery,
   atLimit,
+  plan: planProp,
   planName,
   monitorLimit,
-  planEmailAlerts = false,
-  planOlxAccess = false,
   dailyCreationLimit,
   remainingCreationsToday,
   onClose,
   onSubmit,
 }: CreateMonitorModalProps) {
+  const plan = planProp ?? PLANS.free
   const [query, setQuery] = useState(initialQuery)
   const [condition, setCondition] = useState<Condition>('all')
   const [filterMode, setFilterMode] = useState<MonitorFilterMode>('default')
-  const [marketplaceMode, setMarketplaceMode] = useState<MarketplaceMode>('both')
+  const [marketplaceMode, setMarketplaceMode] = useState<MarketplaceMode>('olx')
   const [excludeInput, setExcludeInput] = useState('')
   const [emailAlerts, setEmailAlerts] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -58,12 +69,12 @@ export default function CreateMonitorModal({
       setQuery(initialQuery)
       setCondition('all')
       setFilterMode('default')
-      setMarketplaceMode(planOlxAccess ? 'both' : 'ml')
+      setMarketplaceMode(defaultMarketplaceMode(plan))
       setExcludeInput('')
       setEmailAlerts(false)
       setSubmitting(false)
     }
-  }, [open, initialQuery, planOlxAccess])
+  }, [open, initialQuery, plan])
 
   useEffect(() => {
     if (!open) return
@@ -84,20 +95,21 @@ export default function CreateMonitorModal({
     try {
       await onSubmit({
         query: trimmed,
-        condition,
-        filterMode,
-        excludeTerms: parseExcludeTermsInput(excludeInput),
-        emailAlerts: planEmailAlerts && emailAlerts,
-        marketplaceMode: normalizeMarketplaceModeForPlan(marketplaceMode, planOlxAccess),
+        condition: plan.customFilters ? condition : 'all',
+        filterMode: plan.customFilters ? filterMode : 'default',
+        excludeTerms: plan.customFilters ? parseExcludeTermsInput(excludeInput) : [],
+        emailAlerts: plan.emailAlerts && emailAlerts,
+        marketplaceMode: normalizeMarketplaceModeForPlan(marketplaceMode, plan),
       })
     } finally {
       setSubmitting(false)
     }
   }
 
-  const showExclude = filterMode !== 'default' || excludeInput.length > 0
+  const showExclude = plan.customFilters && (filterMode !== 'default' || excludeInput.length > 0)
   const atDailyCreationLimit = remainingCreationsToday === 0
   const cannotCreate = atLimit || atDailyCreationLimit
+  const allMarketplaces = plan.mlAccess && plan.olxAccess && plan.enjoeiAccess
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center sm:p-4">
@@ -129,7 +141,7 @@ export default function CreateMonitorModal({
               Novo monitor
             </h2>
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-              Busca no Mercado Livre, OLX e/ou Enjoei e avisa quando surgir anúncio novo.
+              Busca nos marketplaces do seu plano e avisa quando surgir anúncio novo.
             </p>
           </div>
 
@@ -150,10 +162,11 @@ export default function CreateMonitorModal({
               <legend className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
                 Onde buscar
               </legend>
-              {!planOlxAccess && (
+              {!allMarketplaces && (
                 <p className="text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
-                  OLX, Enjoei e combo ML+OLX+Enjoei no plano{' '}
-                  <strong className="text-zinc-700 dark:text-zinc-300">Lojista</strong> ou superior.{' '}
+                  {plan.id === 'free'
+                    ? 'No plano grátis a busca é só na OLX, sem filtros avançados.'
+                    : 'Mercado Livre e o combo dos três sites entram no plano Pro.'}{' '}
                   <a href="/planos" className="font-medium text-yellow-600 hover:underline dark:text-yellow-400">
                     Ver planos
                   </a>
@@ -161,7 +174,8 @@ export default function CreateMonitorModal({
               )}
               <div className="flex flex-col gap-2">
                 {MARKETPLACE_MODE_OPTIONS.map((option) => {
-                  const locked = !planOlxAccess && marketplaceModeRequiresOlx(option.id)
+                  const locked = !planAllowsMarketplaceMode(plan, option.id)
+                  const lockLabel = marketplaceLockLabel(option.id)
                   return (
                   <label
                     key={option.id}
@@ -185,9 +199,9 @@ export default function CreateMonitorModal({
                     <span className="flex flex-col gap-0.5">
                       <span className="text-sm font-medium text-zinc-900 dark:text-white">
                         {option.label}
-                        {locked && (
+                        {locked && lockLabel && (
                           <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wide text-orange-600 dark:text-orange-400">
-                            Lojista+
+                            {lockLabel}
                           </span>
                         )}
                       </span>
@@ -201,81 +215,92 @@ export default function CreateMonitorModal({
               </div>
             </fieldset>
 
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Condição</span>
-              <div className="flex gap-1 rounded-lg border border-zinc-200 p-0.5 dark:border-zinc-700">
-                {(['all', 'new', 'used'] as Condition[]).map((val) => (
-                  <button
-                    key={val}
-                    type="button"
-                    onClick={() => setCondition(val)}
-                    className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition ${
-                      condition === val
-                        ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900'
-                        : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400'
-                    }`}
-                  >
-                    {val === 'all' ? 'Todos' : val === 'new' ? 'Novo' : 'Usado'}
-                  </button>
-                ))}
-              </div>
-            </div>
+            {plan.customFilters ? (
+              <>
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Condição</span>
+                  <div className="flex gap-1 rounded-lg border border-zinc-200 p-0.5 dark:border-zinc-700">
+                    {(['all', 'new', 'used'] as Condition[]).map((val) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => setCondition(val)}
+                        className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition ${
+                          condition === val
+                            ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900'
+                            : 'text-zinc-500 hover:text-zinc-800 dark:text-zinc-400'
+                        }`}
+                      >
+                        {val === 'all' ? 'Todos' : val === 'new' ? 'Novo' : 'Usado'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-            <fieldset className="flex flex-col gap-2">
-              <legend className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                Relevância do título
-              </legend>
-              <div className="flex flex-col gap-2">
-                {FILTER_MODE_OPTIONS.map((option) => (
-                  <label
-                    key={option.id}
-                    className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${
-                      filterMode === option.id
-                        ? 'border-yellow-400 bg-yellow-50/50 ring-1 ring-yellow-400/30 dark:border-yellow-500/50 dark:bg-yellow-950/20'
-                        : 'border-zinc-200 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800/50'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="filterMode"
-                      value={option.id}
-                      checked={filterMode === option.id}
-                      onChange={() => setFilterMode(option.id)}
-                      className="mt-0.5 h-4 w-4 border-zinc-300 text-yellow-500 focus:ring-yellow-400"
-                    />
-                    <span className="flex flex-col gap-0.5">
-                      <span className="text-sm font-medium text-zinc-900 dark:text-white">
-                        {option.label}
-                      </span>
-                      <span className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
-                        {option.description}
-                      </span>
-                      <span className="text-[11px] leading-relaxed text-zinc-400 dark:text-zinc-500">
-                        {option.hint}
-                      </span>
+                <fieldset className="flex flex-col gap-2">
+                  <legend className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                    Relevância do título
+                  </legend>
+                  <div className="flex flex-col gap-2">
+                    {FILTER_MODE_OPTIONS.map((option) => (
+                      <label
+                        key={option.id}
+                        className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${
+                          filterMode === option.id
+                            ? 'border-yellow-400 bg-yellow-50/50 ring-1 ring-yellow-400/30 dark:border-yellow-500/50 dark:bg-yellow-950/20'
+                            : 'border-zinc-200 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800/50'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="filterMode"
+                          value={option.id}
+                          checked={filterMode === option.id}
+                          onChange={() => setFilterMode(option.id)}
+                          className="mt-0.5 h-4 w-4 border-zinc-300 text-yellow-500 focus:ring-yellow-400"
+                        />
+                        <span className="flex flex-col gap-0.5">
+                          <span className="text-sm font-medium text-zinc-900 dark:text-white">
+                            {option.label}
+                          </span>
+                          <span className="text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+                            {option.description}
+                          </span>
+                          <span className="text-[11px] leading-relaxed text-zinc-400 dark:text-zinc-500">
+                            {option.hint}
+                          </span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+
+                {showExclude && (
+                  <label className="flex flex-col gap-1.5">
+                    <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                      Palavras para ignorar <span className="font-normal text-zinc-400">(opcional, estilo eBay -palavra)</span>
                     </span>
+                    <input
+                      type="text"
+                      value={excludeInput}
+                      onChange={(e) => setExcludeInput(e.target.value)}
+                      placeholder="tripé, manual, peça"
+                      className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm outline-none transition focus:border-yellow-400 focus:ring-2 focus:ring-yellow-400/30 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+                    />
+                    <span className="text-[11px] text-zinc-400">Separe por vírgula</span>
                   </label>
-                ))}
-              </div>
-            </fieldset>
-
-            {(showExclude || filterMode !== 'default') && (
-              <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                  Palavras para ignorar <span className="font-normal text-zinc-400">(opcional, estilo eBay -palavra)</span>
-                </span>
-                <input
-                  type="text"
-                  value={excludeInput}
-                  onChange={(e) => setExcludeInput(e.target.value)}
-                  placeholder="tripé, manual, peça"
-                  className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm outline-none transition focus:border-yellow-400 focus:ring-2 focus:ring-yellow-400/30 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
-                />
-                <span className="text-[11px] text-zinc-400">Separe por vírgula</span>
-              </label>
+                )}
+              </>
+            ) : (
+              <p className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-400">
+                Filtros de relevância, condição e palavras a ignorar entram a partir do plano Garimpo.{' '}
+                <a href="/planos" className="font-medium text-yellow-600 hover:underline dark:text-yellow-400">
+                  Ver planos
+                </a>
+              </p>
             )}
 
-            {planEmailAlerts ? (
+            {plan.emailAlerts ? (
               <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-zinc-200 p-3 transition hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800/50">
                 <input
                   type="checkbox"
@@ -294,7 +319,7 @@ export default function CreateMonitorModal({
               </label>
             ) : (
               <p className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-400">
-                Alertas por e-mail estão disponíveis no plano Lojista ou superior.{' '}
+                Alertas por e-mail estão disponíveis a partir do plano Garimpo.{' '}
                 <a href="/planos" className="font-medium text-yellow-600 hover:underline dark:text-yellow-400">
                   Ver planos
                 </a>

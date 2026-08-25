@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server'
-import type { Condition, MarketplaceMode, SortBy } from '@/lib/product'
+import type { Condition, SortBy } from '@/lib/product'
 import { parseFilterMode } from '@/lib/monitor-filter'
-import { parseMarketplaceMode, normalizeMarketplaceModeForPlan, marketplaceModeRequiresOlx } from '@/lib/marketplace'
+import { parseMarketplaceMode, normalizeMarketplaceModeForPlan } from '@/lib/marketplace'
+import { defaultMarketplaceMode, planAllowsMarketplaceMode } from '@/lib/plans'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveSearch } from '@/lib/searches'
@@ -43,29 +44,32 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => ({}))
   const query = (body.query as string | undefined)?.trim()
-  const condition = (body.condition as Condition | undefined) ?? 'all'
-  const filterMode = parseFilterMode(body.filter_mode)
-  const excludeTerms = Array.isArray(body.exclude_terms)
-    ? (body.exclude_terms as string[]).map((t) => String(t).trim()).filter(Boolean)
-    : []
-  const emailAlertsRequested = body.email_alerts === true
-  const requestedMode = parseMarketplaceMode(body.marketplace_mode)
+  const requestedCondition = (body.condition as Condition | undefined) ?? 'all'
   if (!query) return Response.json({ error: 'Query obrigatória' }, { status: 400 })
 
   try {
     const admin = createAdminClient()
     const plan = await getUserPlan(userId)
-    const marketplaceMode = normalizeMarketplaceModeForPlan(requestedMode, plan.olxAccess)
-    if (marketplaceModeRequiresOlx(requestedMode) && !plan.olxAccess) {
+    const requestedMode = body.marketplace_mode == null
+      ? defaultMarketplaceMode(plan)
+      : parseMarketplaceMode(body.marketplace_mode)
+    const condition: Condition = plan.customFilters ? requestedCondition : 'all'
+    const filterMode = plan.customFilters ? parseFilterMode(body.filter_mode) : 'default'
+    const excludeTerms = plan.customFilters && Array.isArray(body.exclude_terms)
+      ? (body.exclude_terms as string[]).map((t) => String(t).trim()).filter(Boolean)
+      : []
+    const emailAlertsRequested = body.email_alerts === true
+    if (!planAllowsMarketplaceMode(plan, requestedMode)) {
       return Response.json(
         {
-          error: 'OLX e Enjoei disponíveis a partir do plano Lojista. Faça upgrade para monitorar esses marketplaces.',
-          code: 'OLX_PLAN_REQUIRED',
+          error: 'Esse marketplace não está incluso no seu plano. Faça upgrade para monitorar ML, OLX e Enjoei juntos.',
+          code: 'MARKETPLACE_PLAN_REQUIRED',
           plan: plan.id,
         },
         { status: 403 },
       )
     }
+    const marketplaceMode = normalizeMarketplaceModeForPlan(requestedMode, plan)
     const emailAlerts = plan.emailAlerts && emailAlertsRequested
 
     let primarySearch

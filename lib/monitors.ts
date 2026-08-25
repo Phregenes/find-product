@@ -77,7 +77,7 @@ export async function createMonitor(
       filter_mode: options?.filterMode ?? 'default',
       exclude_terms: options?.excludeTerms ?? [],
       email_alerts: options?.emailAlerts ?? false,
-      marketplace_mode: options?.marketplaceMode ?? 'ml',
+      marketplace_mode: options?.marketplaceMode ?? 'olx',
     }),
   })
   const data = await res.json()

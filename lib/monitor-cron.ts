@@ -17,6 +17,12 @@ import {
   shouldDelegateToLocalScraper,
   writeLocalScraperHeartbeat,
 } from '@/lib/local-scraper'
+import {
+  clearMlSearchPenalty,
+  getMlQueuePenalties,
+  mlQueueSortScore,
+  penalizeMlSearch,
+} from '@/lib/ml-queue'
 
 /** Local IP (no proxy): soft rate limits — batching is what triggers ML verification. */
 const LOCAL_PAUSE_BETWEEN_MS = 15_000
@@ -181,7 +187,7 @@ function maxPagesForSearchPlans(plans: PlanConfig[]): number {
   const fastest = Math.min(...plans.map((p) => p.checkIntervalMinutes))
   if (fastest <= 60) return cronScrapeMaxPages('pro')
   if (fastest <= 240) return cronScrapeMaxPages('lojista')
-  if (fastest <= 480) return cronScrapeMaxPages('garimpo')
+  if (fastest <= 1440) return cronScrapeMaxPages('garimpo')
   return cronScrapeMaxPages('free')
 }
 
@@ -306,14 +312,27 @@ export async function runMonitorCron(
   let mlDoneThisRun = 0
   let stopMlForRun = false
 
+  // Avoid always leading with the same failing ML query (e.g. "ata"):
+  // penalized searches go to the back for a few hours after block/fail.
+  const mlPenalties = await getMlQueuePenalties()
+
   // Oldest first; OLX/Enjoei before ML so extras still run if ML budget is tight.
+  // Among ML: rotate recently-failed searches behind the rest.
   const orderedSearchIds = [...searchesToScrape].sort((a, b) => {
     const aSearch = searchById.get(a)
     const bSearch = searchById.get(b)
     const rank = (m?: string) => (m === 'olx' || m === 'enjoei' ? 0 : 1)
-    const aOlx = rank(aSearch?.marketplace)
-    const bOlx = rank(bSearch?.marketplace)
-    if (aOlx !== bOlx) return aOlx - bOlx
+    const aExtra = rank(aSearch?.marketplace)
+    const bExtra = rank(bSearch?.marketplace)
+    if (aExtra !== bExtra) return aExtra - bExtra
+
+    if (aSearch?.marketplace === 'ml' && bSearch?.marketplace === 'ml') {
+      const aScore = mlQueueSortScore(a, aSearch.last_scraped_at, mlPenalties)
+      const bScore = mlQueueSortScore(b, bSearch.last_scraped_at, mlPenalties)
+      if (aScore !== bScore) return aScore - bScore
+      return a.localeCompare(b)
+    }
+
     const aAt = aSearch?.last_scraped_at
     const bAt = bSearch?.last_scraped_at
     if (!aAt && !bAt) return 0
@@ -323,10 +342,19 @@ export async function runMonitorCron(
   })
 
   if (localIp) {
-    const mlDue = orderedSearchIds.filter((id) => searchById.get(id)?.marketplace === 'ml').length
-    if (mlDue > LOCAL_ML_MAX_PER_RUN) {
+    const mlOrdered = orderedSearchIds
+      .map((id) => searchById.get(id))
+      .filter((s): s is SearchRow => !!s && s.marketplace === 'ml')
+    if (mlOrdered.length > 0) {
+      const preview = mlOrdered
+        .slice(0, LOCAL_ML_MAX_PER_RUN)
+        .map((s) => `"${s.query}"`)
+        .join(', ')
       console.log(
-        `[cron] IP local: ${mlDue} buscas ML due → no máx. ${LOCAL_ML_MAX_PER_RUN} neste ciclo (resto no próximo loop)`,
+        `[cron] IP local: até ${LOCAL_ML_MAX_PER_RUN} ML neste ciclo → ${preview}`
+          + (mlOrdered.length > LOCAL_ML_MAX_PER_RUN
+            ? ` (+${mlOrdered.length - LOCAL_ML_MAX_PER_RUN} depois)`
+            : ''),
       )
     }
   }
@@ -368,7 +396,10 @@ export async function runMonitorCron(
         scrapedBySearch.set(searchId, products)
         consecutiveBlocks = 0
         if (localIp) pauseBetweenMs = LOCAL_PAUSE_BETWEEN_MS
-        if (search.marketplace === 'ml') mlDoneThisRun += 1
+        if (search.marketplace === 'ml') {
+          mlDoneThisRun += 1
+          await clearMlSearchPenalty(searchId).catch(() => {})
+        }
       } catch (err) {
         if (isBrowserClosedError(err)) {
           await relaunchBrowser()
@@ -376,7 +407,10 @@ export async function runMonitorCron(
             const products = await scrapeOneSearch(search)
             scrapedBySearch.set(searchId, products)
             consecutiveBlocks = 0
-            if (search.marketplace === 'ml') mlDoneThisRun += 1
+            if (search.marketplace === 'ml') {
+              mlDoneThisRun += 1
+              await clearMlSearchPenalty(searchId).catch(() => {})
+            }
             continue
           } catch (retryErr) {
             err = retryErr
@@ -396,16 +430,26 @@ export async function runMonitorCron(
             const products = await scrapeOneSearch(search)
             scrapedBySearch.set(searchId, products)
             consecutiveBlocks = 0
-            if (search.marketplace === 'ml') mlDoneThisRun += 1
+            if (search.marketplace === 'ml') {
+              mlDoneThisRun += 1
+              await clearMlSearchPenalty(searchId).catch(() => {})
+            }
             continue
           } catch (retryErr) {
             err = retryErr
           }
         }
 
-        if (isMarketplaceBlockedError(err) && localIp && search.marketplace === 'ml') {
-          stopMlForRun = true
-          console.warn('[cron] ML ainda bloqueando — demais buscas ML ficam p/ o próximo ciclo')
+        if (search.marketplace === 'ml') {
+          // Push this query to the back so the next cycle starts with another monitor
+          // (e.g. skip "ata" after it keeps triggering ML verification).
+          await penalizeMlSearch(searchId, search.query).catch(() => {})
+          if (isMarketplaceBlockedError(err) && localIp) {
+            stopMlForRun = true
+            console.warn(
+              '[cron] ML ainda bloqueando — demais buscas ML ficam p/ o próximo ciclo (outra query na frente)',
+            )
+          }
         }
 
         const msg = formatScrapeError(err)
