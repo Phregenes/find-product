@@ -161,8 +161,6 @@ export async function createMonthlySubscription(input: {
   const plan = PLANS[input.planId]
   const today = new Date().toISOString().slice(0, 10)
   const successUrl = subscriptionSuccessUrl()
-  const isLocalDev =
-    successUrl.includes('localhost') || successUrl.includes('127.0.0.1')
 
   const payload: Record<string, unknown> = {
     customer: input.customerId,
@@ -194,13 +192,10 @@ export async function createMonthlySubscription(input: {
         : {}),
     },
     remoteIp: input.remoteIp,
-  }
-
-  if (!isLocalDev) {
-    payload.callback = {
+    callback: {
       successUrl,
       autoRedirect: true,
-    }
+    },
   }
 
   return asaasRequest<AsaasSubscription>('/v3/subscriptions', {
