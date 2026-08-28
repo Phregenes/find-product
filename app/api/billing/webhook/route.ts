@@ -1,10 +1,26 @@
 import { NextRequest } from 'next/server'
-import { applyPaymentToProfile, applySubscriptionToProfile } from '@/lib/billing'
+import {
+  applyPaymentToProfile,
+  applySubscriptionToProfile,
+  downgradeForFailedPayment,
+} from '@/lib/billing'
 import { getPayment, getSubscription, verifyWebhookToken } from '@/lib/asaas'
 
 export const dynamic = 'force-dynamic'
 
+/** Pagamento ok → libera plano. */
 const PAYMENT_OK_EVENTS = new Set(['PAYMENT_RECEIVED', 'PAYMENT_CONFIRMED'])
+
+/** Pagamento falhou / parou → rebaixa para free. */
+const PAYMENT_FAIL_EVENTS = new Set([
+  'PAYMENT_OVERDUE',
+  'PAYMENT_CREDIT_CARD_CAPTURE_REFUSED',
+  'PAYMENT_REFUNDED',
+  'PAYMENT_CHARGEBACK_REQUESTED',
+  'PAYMENT_CHARGEBACK_DISPUTE',
+])
+
+/** Assinatura encerrada no Asaas → rebaixa para free. */
 const SUBSCRIPTION_OFF_EVENTS = new Set(['SUBSCRIPTION_INACTIVATED', 'SUBSCRIPTION_DELETED'])
 
 export async function GET() {
@@ -36,6 +52,10 @@ export async function POST(request: NextRequest) {
   try {
     if (PAYMENT_OK_EVENTS.has(event)) {
       return await handlePaymentOk(event, body.payment?.id)
+    }
+
+    if (PAYMENT_FAIL_EVENTS.has(event)) {
+      return await handlePaymentFail(event, body.payment?.id)
     }
 
     if (SUBSCRIPTION_OFF_EVENTS.has(event)) {
@@ -74,6 +94,31 @@ async function handlePaymentOk(event: string, paymentId?: string) {
   return Response.json({ ok: true, updated: result.updated })
 }
 
+async function handlePaymentFail(event: string, paymentId?: string) {
+  if (!paymentId) {
+    console.warn('[billing/webhook] falha sem payment.id', event)
+    return Response.json({ ok: true, ignored: 'no_payment_id' })
+  }
+
+  const payment = await getPayment(paymentId)
+  const subscription = payment.subscription
+    ? await getSubscription(payment.subscription).catch(() => null)
+    : null
+
+  const result = await downgradeForFailedPayment(payment, subscription, event)
+
+  if (result.updated) {
+    console.info('[billing/webhook] plano rebaixado para free', {
+      event,
+      paymentId,
+      userId: result.userId,
+      status: payment.status,
+    })
+  }
+
+  return Response.json({ ok: true, updated: result.updated, downgraded: result.updated })
+}
+
 async function handleSubscriptionOff(
   event: string,
   subscription?: { id?: string; status?: string; externalReference?: string },
@@ -86,13 +131,19 @@ async function handleSubscriptionOff(
     ? subscription
     : await getSubscription(subscription.id).catch(() => subscription)
 
-  await applySubscriptionToProfile(full)
+  const result = await applySubscriptionToProfile({
+    id: full.id ?? subscription.id,
+    status: full.status ?? (event === 'SUBSCRIPTION_DELETED' ? 'DELETED' : 'INACTIVE'),
+    externalReference: full.externalReference,
+    customer: 'customer' in full ? (full as { customer?: string }).customer : undefined,
+  })
 
   console.info('[billing/webhook] assinatura encerrada', {
     event,
     subscriptionId: subscription.id,
-    status: full.status,
+    userId: result.userId,
+    downgraded: result.downgraded,
   })
 
-  return Response.json({ ok: true, updated: true })
+  return Response.json({ ok: true, updated: result.updated, downgraded: result.downgraded })
 }

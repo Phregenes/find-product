@@ -7,6 +7,7 @@ import {
   getSubscription,
   isActiveSubscriptionStatus,
   isAsaasConfigured,
+  isFailedPaymentStatus,
   isInactiveSubscriptionStatus,
   isPaidPaymentStatus,
   parseBillingReference,
@@ -14,22 +15,41 @@ import {
   type AsaasSubscription,
 } from '@/lib/asaas'
 
-export async function applySubscriptionToProfile(subscription: AsaasSubscription): Promise<void> {
+export async function applySubscriptionToProfile(
+  subscription: AsaasSubscription,
+): Promise<{ updated: boolean; userId?: string; downgraded?: boolean }> {
   const parsed = parseBillingReference(subscription.externalReference)
-  if (!parsed) return
-
   const admin = createAdminClient()
   const status = (subscription.status ?? 'UNKNOWN').toUpperCase()
   const inactive = isInactiveSubscriptionStatus(status)
 
-  await admin
+  const patch = {
+    ...(inactive ? { plan: 'free' as const } : {}),
+    asaas_subscription_id: subscription.id,
+    asaas_subscription_status: status,
+  }
+
+  if (parsed) {
+    const { error } = await admin.from('profiles').update(patch).eq('id', parsed.userId)
+    if (error) throw new Error(error.message)
+    return { updated: true, userId: parsed.userId, downgraded: inactive }
+  }
+
+  // Fallback: achar pelo ID da assinatura se a referência externa vier vazia.
+  const { data, error } = await admin
     .from('profiles')
-    .update({
-      ...(inactive ? { plan: 'free' as const } : {}),
-      asaas_subscription_id: subscription.id,
-      asaas_subscription_status: status,
-    })
-    .eq('id', parsed.userId)
+    .update(patch)
+    .eq('asaas_subscription_id', subscription.id)
+    .select('id')
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  if (!data?.id) {
+    console.warn('[billing] assinatura sem perfil correspondente', subscription.id)
+    return { updated: false }
+  }
+
+  return { updated: true, userId: data.id as string, downgraded: inactive }
 }
 
 export async function applyPaymentToProfile(
@@ -62,6 +82,51 @@ export async function applyPaymentToProfile(
   }
 
   return { updated: true, userId: parsed.userId, planId: parsed.planId }
+}
+
+/**
+ * Pagamento vencido, recusado, estornado ou chargeback → rebaixa para free.
+ * Mantém o vínculo Asaas para auditoria.
+ */
+export async function downgradeForFailedPayment(
+  payment: AsaasPayment,
+  subscription?: AsaasSubscription | null,
+  eventStatus?: string,
+): Promise<{ updated: boolean; userId?: string }> {
+  const ref = payment.externalReference || subscription?.externalReference
+  const parsed = parseBillingReference(ref)
+  const status = (eventStatus || payment.status || 'FAILED').toUpperCase()
+
+  if (!isFailedPaymentStatus(payment.status) && !eventStatus) {
+    return { updated: false, userId: parsed?.userId }
+  }
+
+  const admin = createAdminClient()
+  const patch = {
+    plan: 'free' as const,
+    ...(payment.subscription ? { asaas_subscription_id: payment.subscription } : {}),
+    asaas_subscription_status: status,
+  }
+
+  if (parsed) {
+    const { error } = await admin.from('profiles').update(patch).eq('id', parsed.userId)
+    if (error) throw new Error(error.message)
+    return { updated: true, userId: parsed.userId }
+  }
+
+  if (payment.subscription) {
+    const { data, error } = await admin
+      .from('profiles')
+      .update(patch)
+      .eq('asaas_subscription_id', payment.subscription)
+      .select('id')
+      .maybeSingle()
+    if (error) throw new Error(error.message)
+    if (data?.id) return { updated: true, userId: data.id as string }
+  }
+
+  console.warn('[billing] falha de pagamento sem perfil correspondente', payment.id, ref)
+  return { updated: false }
 }
 
 export async function replaceUserSubscription(

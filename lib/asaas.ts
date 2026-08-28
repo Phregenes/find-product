@@ -265,6 +265,18 @@ export function isInactiveSubscriptionStatus(status?: string): boolean {
   return s === 'INACTIVE' || s === 'EXPIRED' || s === 'DELETED'
 }
 
+/** Status de cobrança que devem tirar o acesso pago. */
+export function isFailedPaymentStatus(status?: string): boolean {
+  const s = (status ?? '').toUpperCase()
+  return (
+    s === 'OVERDUE'
+    || s === 'REFUNDED'
+    || s === 'CHARGEBACK_REQUESTED'
+    || s === 'CHARGEBACK_DISPUTE'
+    || s === 'REFUND_REQUESTED'
+  )
+}
+
 export function webhookToken(): string | null {
   return process.env.ASAAS_WEBHOOK_TOKEN?.trim() || null
 }
