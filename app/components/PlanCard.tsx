@@ -107,19 +107,27 @@ export default function PlanCard({
       </ul>
 
       {paid ? (
-        <a
-          href={buildPlanWhatsAppUrl(plan)}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={`flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
-            highlighted
-              ? 'bg-yellow-400 text-zinc-900 hover:bg-yellow-300'
-              : 'border border-zinc-200 bg-zinc-50 text-zinc-900 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700'
-          }`}
-        >
-          <WhatsAppIcon />
-          Quero esse plano
-        </a>
+        <div className="flex flex-col gap-2">
+          <Link
+            href={`/assinar?plan=${plan.id}`}
+            className={`flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+              highlighted
+                ? 'bg-yellow-400 text-zinc-900 hover:bg-yellow-300'
+                : 'border border-zinc-200 bg-zinc-50 text-zinc-900 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700'
+            }`}
+          >
+            Assinar com cartão
+          </Link>
+          <a
+            href={buildPlanWhatsAppUrl(plan)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 text-xs font-medium text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+          >
+            <WhatsAppIcon />
+            Ou falar no WhatsApp
+          </a>
+        </div>
       ) : (
         <Link
           href="/register"
