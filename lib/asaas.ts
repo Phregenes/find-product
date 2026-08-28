@@ -1,6 +1,5 @@
 import 'server-only'
 
-import { getSiteUrl } from '@/lib/site'
 import { PAID_PLAN_IDS, PLANS, type PaidPlanId } from '@/lib/plans'
 
 const PRODUCTION_BASE = 'https://api.asaas.com'
@@ -87,10 +86,6 @@ export function buildBillingReference(userId: string, planId: PaidPlanId): strin
   return `fp:${userId}:${planId}`
 }
 
-export function subscriptionSuccessUrl(): string {
-  return `${getSiteUrl()}/assinar/ok`
-}
-
 export interface AsaasCustomer {
   id: string
   email?: string
@@ -160,8 +155,10 @@ export async function createMonthlySubscription(input: {
 }): Promise<AsaasSubscription> {
   const plan = PLANS[input.planId]
   const today = new Date().toISOString().slice(0, 10)
-  const successUrl = subscriptionSuccessUrl()
 
+  // Transparent card checkout redirects on our side (/assinar/ok).
+  // Do not send callback.successUrl — Asaas rejects URLs whose domain
+  // is not registered under Minha Conta → Informações.
   const payload: Record<string, unknown> = {
     customer: input.customerId,
     billingType: 'CREDIT_CARD',
@@ -192,10 +189,6 @@ export async function createMonthlySubscription(input: {
         : {}),
     },
     remoteIp: input.remoteIp,
-    callback: {
-      successUrl,
-      autoRedirect: true,
-    },
   }
 
   return asaasRequest<AsaasSubscription>('/v3/subscriptions', {
