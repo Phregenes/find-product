@@ -2,6 +2,9 @@ import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
   images: {
+    // Vercel Image Optimization returns 402 OPTIMIZED_IMAGE_REQUEST_PAYMENT_REQUIRED
+    // for AVIF/WebP on this plan, which breaks every <Image> in production.
+    unoptimized: true,
     remotePatterns: [
       {
         protocol: 'https',
