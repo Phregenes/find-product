@@ -19,6 +19,21 @@ export type PlanId = 'free' | 'garimpo' | 'lojista' | 'pro'
 
 export type PaidPlanId = Exclude<PlanId, 'free'>
 
+const PLAN_RANK: Record<PlanId, number> = {
+  free: 0,
+  garimpo: 1,
+  lojista: 2,
+  pro: 3,
+}
+
+export function isPlanDowngrade(from: PlanId, to: PlanId): boolean {
+  return PLAN_RANK[to] < PLAN_RANK[from]
+}
+
+export function isPlanUpgrade(from: PlanId, to: PlanId): boolean {
+  return PLAN_RANK[to] > PLAN_RANK[from]
+}
+
 export interface PlanConfig {
   id: PlanId
   name: string

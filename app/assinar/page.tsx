@@ -4,7 +4,15 @@ import SiteHeader from '@/app/components/SiteHeader'
 import SiteFooter from '@/app/components/SiteFooter'
 import CheckoutForm from '@/app/components/CheckoutForm'
 import { getUserIdFromSession, getUserPlan } from '@/lib/plans-server'
-import { PAID_PLAN_IDS, PLANS, type PaidPlanId, formatPlanPrice, formatPlanMarketplaces } from '@/lib/plans'
+import {
+  PAID_PLAN_IDS,
+  PLANS,
+  type PaidPlanId,
+  formatPlanPrice,
+  formatPlanMarketplaces,
+  isPlanDowngrade,
+} from '@/lib/plans'
+import { getDowngradePreview } from '@/lib/plan-downgrade'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,6 +37,13 @@ export default async function AssinarPage({
   const currentPlan = await getUserPlan(userId)
   if (currentPlan.id === planId) {
     redirect('/planos')
+  }
+
+  if (isPlanDowngrade(currentPlan.id, planId)) {
+    const preview = await getDowngradePreview(userId, planId)
+    if (preview.needsAdjustment) {
+      redirect(`/planos/ajustar?plan=${planId}`)
+    }
   }
 
   const plan = PLANS[planId]
