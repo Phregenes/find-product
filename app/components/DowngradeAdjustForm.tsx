@@ -149,8 +149,6 @@ export default function DowngradeAdjustForm({
   const canConfirm =
     selectedCount <= preview.monitorLimit
     && (selectedCount > 0 || preview.selectable.length === 0)
-  const hasSideNotes =
-    preview.autoRemove.length > 0 || preview.autoConvert.length > 0
 
   return (
     <div className="space-y-6">
@@ -165,16 +163,51 @@ export default function DowngradeAdjustForm({
           <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
             Ao mudar para <strong className="text-zinc-900 dark:text-white">{preview.targetPlanName}</strong>, o limite é{' '}
             <strong className="text-zinc-900 dark:text-white">{preview.monitorLimit}</strong>{' '}
-            {preview.monitorLimit === 1 ? 'monitor' : 'monitores'}. Escolha o que
-            manter; o restante será excluído.
+            {preview.monitorLimit === 1 ? 'monitor' : 'monitores'}. Monitores com{' '}
+            <strong className="text-zinc-900 dark:text-white">Mercado Livre</strong> são
+            removidos automaticamente — escolha só entre os compatíveis.
           </p>
+
+          {preview.autoRemove.length > 0 && (
+            <section className="space-y-3">
+              <div>
+                <h2 className="text-base font-semibold text-zinc-900 dark:text-white">
+                  Não podem ser mantidos
+                </h2>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Incluem Mercado Livre ou outro marketplace fora do plano. Serão
+                  excluídos — não dá para selecionar.
+                </p>
+              </div>
+              <ul className="grid gap-3 sm:grid-cols-2">
+                {preview.autoRemove.map((m) => (
+                  <li
+                    key={m.id}
+                    className="rounded-2xl border border-red-200 bg-red-50/80 p-4 opacity-90 dark:border-red-900/40 dark:bg-red-950/20"
+                  >
+                    <p className="text-sm font-medium text-zinc-900 dark:text-white">
+                      {m.query}
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-red-700/80 dark:text-red-300/80">
+                      {m.marketplaceLabel} · {m.reason}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           {preview.selectable.length > 0 && (
             <section className="space-y-3">
               <div className="flex items-end justify-between gap-3">
-                <h2 className="text-base font-semibold text-zinc-900 dark:text-white">
-                  Escolha o que manter
-                </h2>
+                <div>
+                  <h2 className="text-base font-semibold text-zinc-900 dark:text-white">
+                    Escolha o que manter
+                  </h2>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Só monitores compatíveis com o {preview.targetPlanName}.
+                  </p>
+                </div>
                 <p className="text-sm tabular-nums text-zinc-500">
                   <span className="font-semibold text-zinc-900 dark:text-white">
                     {selectedCount}
@@ -223,11 +256,11 @@ export default function DowngradeAdjustForm({
             </section>
           )}
 
-          {/* Mobile: changes before CTA */}
-          {hasSideNotes && (
-            <div className="space-y-4 lg:hidden">
-              <ChangesPanel preview={preview} />
-            </div>
+          {preview.autoConvert.length > 0 && (
+            <p className="text-xs text-zinc-500 lg:hidden">
+              Alguns monitores mantidos serão adaptados (ex.: sai Enjoei no plano
+              Free).
+            </p>
           )}
 
           <button
@@ -257,9 +290,39 @@ export default function DowngradeAdjustForm({
                 </strong>{' '}
                 de {preview.monitorLimit} no {preview.targetPlanName}
               </p>
+              {preview.autoRemove.length > 0 && (
+                <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+                  {preview.autoRemove.length}{' '}
+                  {preview.autoRemove.length === 1
+                    ? 'monitor será removido'
+                    : 'monitores serão removidos'}{' '}
+                  (inclui Mercado Livre).
+                </p>
+              )}
             </div>
 
-            {hasSideNotes && <ChangesPanel preview={preview} compact />}
+            {preview.autoConvert.length > 0 && (
+              <section className="space-y-2">
+                <h3 className="text-sm font-semibold text-zinc-900 dark:text-white">
+                  Adaptados se mantidos
+                </h3>
+                <ul className="space-y-2">
+                  {preview.autoConvert.map((m) => (
+                    <li
+                      key={m.id}
+                      className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2.5 dark:border-amber-900/40 dark:bg-amber-950/20"
+                    >
+                      <p className="text-sm font-medium text-zinc-900 dark:text-white">
+                        {m.query}
+                      </p>
+                      <p className="mt-0.5 text-xs text-zinc-500">
+                        {m.marketplaceLabel} → {m.toLabel}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
 
             <button
               type="button"
@@ -276,66 +339,6 @@ export default function DowngradeAdjustForm({
           </div>
         </aside>
       </div>
-    </div>
-  )
-}
-
-function ChangesPanel({
-  preview,
-  compact = false,
-}: {
-  preview: DowngradePreview
-  compact?: boolean
-}) {
-  return (
-    <div className="space-y-4">
-      {preview.autoRemove.length > 0 && (
-        <section className="space-y-2">
-          <h3 className="text-sm font-semibold text-zinc-900 dark:text-white">
-            Removidos automaticamente
-          </h3>
-          {!compact && (
-            <p className="text-xs text-zinc-500">
-              Inclui monitores só do Mercado Livre quando o plano novo não tem ML.
-            </p>
-          )}
-          <ul className="space-y-2">
-            {preview.autoRemove.map((m) => (
-              <li
-                key={m.id}
-                className="rounded-xl border border-red-200 bg-red-50/80 px-3 py-2.5 dark:border-red-900/40 dark:bg-red-950/20"
-              >
-                <p className="text-sm font-medium text-zinc-900 dark:text-white">{m.query}</p>
-                <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
-                  {compact ? m.marketplaceLabel : `${m.marketplaceLabel} · ${m.reason}`}
-                </p>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {preview.autoConvert.length > 0 && (
-        <section className="space-y-2">
-          <h3 className="text-sm font-semibold text-zinc-900 dark:text-white">
-            Sem Mercado Livre se mantidos
-          </h3>
-          <ul className="space-y-2">
-            {preview.autoConvert.map((m) => (
-              <li
-                key={m.id}
-                className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2.5 dark:border-amber-900/40 dark:bg-amber-950/20"
-              >
-                <p className="text-sm font-medium text-zinc-900 dark:text-white">{m.query}</p>
-                <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
-                  {m.marketplaceLabel} → {m.toLabel}
-                  {!compact && <> · {m.reason}</>}
-                </p>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
     </div>
   )
 }

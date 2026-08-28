@@ -64,33 +64,15 @@ function suggestedMode(
     return { action: 'keep' }
   }
 
-  // Pure ML cannot stay on a plan without ML — remove (don't invent an OLX search).
-  if (mode === 'ml') {
+  // Anything that includes Mercado Livre cannot stay on a plan without ML.
+  // Do not convert/keep — user must choose among monitors that already fit the plan.
+  if (mode === 'ml' || mode === 'both') {
     return {
       action: 'remove',
-      reason: 'Este monitor busca só no Mercado Livre, indisponível no plano destino.',
-    }
-  }
-
-  // ML + outros: strip ML and keep what the target plan allows.
-  if (mode === 'both') {
-    if (planAllowsMarketplaceMode(plan, 'olx_enjoei')) {
-      return {
-        action: 'convert',
-        toMode: 'olx_enjoei',
-        reason: 'Mercado Livre sai deste monitor — fica OLX + Enjoei.',
-      }
-    }
-    if (planAllowsMarketplaceMode(plan, 'olx')) {
-      return {
-        action: 'convert',
-        toMode: 'olx',
-        reason: 'Mercado Livre e Enjoei saem deste monitor — fica só OLX.',
-      }
-    }
-    return {
-      action: 'remove',
-      reason: 'Este monitor usa Mercado Livre, indisponível no plano destino.',
+      reason:
+        mode === 'ml'
+          ? 'Busca só no Mercado Livre — indisponível neste plano.'
+          : 'Inclui Mercado Livre — não pode ser mantido neste plano.',
     }
   }
 
@@ -319,8 +301,18 @@ export async function applyDowngradeMonitorChanges(
   for (const id of keepMonitorIds) {
     const toMode = convertById.get(id)
     if (!toMode) continue
-    await convertMonitorToMode(userId, id, toMode)
-    converted += 1
+    try {
+      await convertMonitorToMode(userId, id, toMode)
+      converted += 1
+    } catch (err) {
+      const message = (err as Error).message
+      if (message.includes('monitors_user_search_unique')) {
+        throw new Error(
+          'Dois monitores ficariam iguais depois do ajuste. Exclua um deles e tente de novo.',
+        )
+      }
+      throw err
+    }
   }
 
   // Safety: no leftover marketplace modes the target plan forbids (esp. ML).

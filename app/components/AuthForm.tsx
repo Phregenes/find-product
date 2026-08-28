@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { getSiteUrl } from '@/lib/site'
+import { getAuthErrorMessage } from '@/lib/auth-errors'
 import { validateEmail } from '@/lib/validation'
 
 type Mode = 'login' | 'register'
@@ -17,11 +19,9 @@ export default function AuthForm({ mode }: { mode: Mode }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
-  const [failedAttempts, setFailedAttempts] = useState(0)
   const [emailError, setEmailError] = useState<string | null>(null)
 
   const isLogin = mode === 'login'
-  const showResetLink = isLogin && failedAttempts >= 3
   const resetPasswordHref = `/recuperar-senha${email ? `?email=${encodeURIComponent(email)}` : ''}`
 
   useEffect(() => {
@@ -51,7 +51,6 @@ export default function AuthForm({ mode }: { mode: Mode }) {
       if (isLogin) {
         const { error } = await supabase.auth.signInWithPassword({ email: trimmedEmail, password })
         if (error) throw error
-        setFailedAttempts(0)
         router.push(redirectTo)
         router.refresh()
       } else {
@@ -61,7 +60,13 @@ export default function AuthForm({ mode }: { mode: Mode }) {
           return
         }
 
-        const { data, error } = await supabase.auth.signUp({ email: trimmedEmail, password })
+        const { data, error } = await supabase.auth.signUp({
+          email: trimmedEmail,
+          password,
+          options: {
+            emailRedirectTo: `${getSiteUrl()}/auth/callback?next=/login`,
+          },
+        })
         if (error) throw error
         // If email confirmation is disabled, a session is returned immediately.
         if (data.session) {
@@ -72,11 +77,7 @@ export default function AuthForm({ mode }: { mode: Mode }) {
         }
       }
     } catch (err) {
-      const message = (err as Error).message
-      setError(translateError(message))
-      if (isLogin && message.toLowerCase().includes('invalid login credentials')) {
-        setFailedAttempts((n) => n + 1)
-      }
+      setError(getAuthErrorMessage(err))
     } finally {
       setLoading(false)
     }
@@ -115,7 +116,6 @@ export default function AuthForm({ mode }: { mode: Mode }) {
               value={email}
               onChange={(e) => {
                 setEmail(e.target.value)
-                setFailedAttempts(0)
                 if (emailError) setEmailError(null)
               }}
               onBlur={() => setEmailError(email.trim() ? validateEmail(email) : null)}
@@ -129,14 +129,25 @@ export default function AuthForm({ mode }: { mode: Mode }) {
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="password" className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-              Senha
-            </label>
+            <div className="flex items-center justify-between gap-2">
+              <label htmlFor="password" className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                Senha
+              </label>
+              {isLogin && (
+                <Link
+                  href={resetPasswordHref}
+                  className="text-[11px] font-medium text-yellow-600 hover:underline dark:text-yellow-400"
+                >
+                  Esqueceu a senha?
+                </Link>
+              )}
+            </div>
             <input
               id="password"
               type="password"
               required
               minLength={6}
+              autoComplete={isLogin ? 'current-password' : 'new-password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
@@ -168,14 +179,6 @@ export default function AuthForm({ mode }: { mode: Mode }) {
           {error && (
             <div className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/30 dark:bg-red-950/20 dark:text-red-400">
               {error}
-              {showResetLink && (
-                <p className="mt-2 border-t border-red-200/60 pt-2 dark:border-red-900/40">
-                  Esqueceu a senha?{' '}
-                  <Link href={resetPasswordHref} className="font-semibold text-yellow-700 hover:underline dark:text-yellow-400">
-                    Redefinir senha
-                  </Link>
-                </p>
-              )}
             </div>
           )}
           {info && (
@@ -222,13 +225,4 @@ export default function AuthForm({ mode }: { mode: Mode }) {
       </div>
     </div>
   )
-}
-
-function translateError(message: string): string {
-  const m = message.toLowerCase()
-  if (m.includes('invalid login credentials')) return 'E-mail ou senha incorretos.'
-  if (m.includes('user already registered')) return 'Este e-mail já está cadastrado.'
-  if (m.includes('email not confirmed')) return 'Confirme seu e-mail antes de entrar.'
-  if (m.includes('password should be')) return 'A senha deve ter pelo menos 6 caracteres.'
-  return message
 }

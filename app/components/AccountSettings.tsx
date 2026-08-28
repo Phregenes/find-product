@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { getPlanConfig, formatPlanPrice, type PlanId } from '@/lib/plans'
+import { getPlanConfig, formatPlanPrice, isPaidPlan, type PlanId } from '@/lib/plans'
+import UpdateCardForm from '@/app/components/UpdateCardForm'
 
 interface Profile {
   email: string | null
@@ -12,6 +13,7 @@ interface Profile {
   plan: PlanId
   email_alerts: boolean
   created_at: string
+  asaas_subscription_id: string | null
 }
 
 export default function AccountSettings() {
@@ -167,6 +169,20 @@ export default function AccountSettings() {
                     >
                       Ver ou trocar de plano
                     </Link>
+                  </div>
+                )}
+
+                {profile?.asaas_subscription_id && isPaidPlan(profile.plan) && (
+                  <div className="border-t border-zinc-100 pt-4 dark:border-zinc-800">
+                    <p className="text-sm font-medium text-zinc-900 dark:text-white">
+                      Pagamento
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Troque o cartão usado nas cobranças mensais do Asaas.
+                    </p>
+                    <div className="mt-3">
+                      <UpdateCardForm />
+                    </div>
                   </div>
                 )}
 

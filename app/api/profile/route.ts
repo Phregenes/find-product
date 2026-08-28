@@ -18,7 +18,7 @@ export async function GET() {
   const supabase = await createClient()
   const { data, error } = await supabase
     .from('profiles')
-    .select('email, display_name, plan, email_alerts, created_at')
+    .select('email, display_name, plan, email_alerts, created_at, asaas_subscription_id')
     .eq('id', userId)
     .single()
 
@@ -42,7 +42,7 @@ export async function PATCH(request: NextRequest) {
     .from('profiles')
     .update({ display_name: displayName || null })
     .eq('id', userId)
-    .select('email, display_name, plan, email_alerts, created_at')
+    .select('email, display_name, plan, email_alerts, created_at, asaas_subscription_id')
     .single()
 
   if (error) return Response.json({ error: error.message }, { status: 500 })

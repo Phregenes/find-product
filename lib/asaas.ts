@@ -106,6 +106,18 @@ export interface AsaasPayment {
   externalReference?: string
   invoiceUrl?: string
   billingType?: string
+  dateCreated?: string
+  dueDate?: string
+  creditCard?: {
+    creditCardNumber?: string
+    creditCardBrand?: string
+    creditCardToken?: string
+  } | null
+}
+
+export interface MaskedCreditCard {
+  lastDigits: string
+  brand: string | null
 }
 
 export async function createCustomer(input: {
@@ -197,6 +209,45 @@ export async function createMonthlySubscription(input: {
   })
 }
 
+/** Update card on an existing subscription without charging immediately. */
+export async function updateSubscriptionCreditCard(input: {
+  subscriptionId: string
+  creditCard: CreditCardInput
+  creditCardHolderInfo: CreditCardHolderInput
+  remoteIp: string
+}): Promise<AsaasSubscription> {
+  return asaasRequest<AsaasSubscription>(
+    `/v3/subscriptions/${input.subscriptionId}/creditCard`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({
+        creditCard: {
+          holderName: input.creditCard.holderName,
+          number: input.creditCard.number.replace(/\D/g, ''),
+          expiryMonth: input.creditCard.expiryMonth.padStart(2, '0'),
+          expiryYear: normalizeExpiryYear(input.creditCard.expiryYear),
+          ccv: input.creditCard.ccv,
+        },
+        creditCardHolderInfo: {
+          name: input.creditCardHolderInfo.name,
+          email: input.creditCardHolderInfo.email,
+          cpfCnpj: input.creditCardHolderInfo.cpfCnpj.replace(/\D/g, ''),
+          postalCode: input.creditCardHolderInfo.postalCode.replace(/\D/g, ''),
+          addressNumber: input.creditCardHolderInfo.addressNumber,
+          phone: input.creditCardHolderInfo.phone.replace(/\D/g, ''),
+          ...(input.creditCardHolderInfo.mobilePhone
+            ? { mobilePhone: input.creditCardHolderInfo.mobilePhone.replace(/\D/g, '') }
+            : {}),
+          ...(input.creditCardHolderInfo.addressComplement
+            ? { addressComplement: input.creditCardHolderInfo.addressComplement }
+            : {}),
+        },
+        remoteIp: input.remoteIp,
+      }),
+    },
+  )
+}
+
 function normalizeExpiryYear(year: string): string {
   const digits = year.replace(/\D/g, '')
   if (digits.length === 2) return `20${digits}`
@@ -208,6 +259,31 @@ export async function listSubscriptionPayments(subscriptionId: string): Promise<
     `/v3/subscriptions/${subscriptionId}/payments`,
   )
   return res.data ?? []
+}
+
+/**
+ * Asaas never returns the full PAN. Card brand + last 4 digits come from
+ * subscription payments (most recent with creditCard data).
+ */
+export async function getSubscriptionMaskedCard(
+  subscriptionId: string,
+): Promise<MaskedCreditCard | null> {
+  const payments = await listSubscriptionPayments(subscriptionId)
+  const withCard = [...payments]
+    .filter((p) => p.creditCard?.creditCardNumber)
+    .sort((a, b) => {
+      const da = a.dateCreated || a.dueDate || ''
+      const db = b.dateCreated || b.dueDate || ''
+      return db.localeCompare(da)
+    })
+
+  const card = withCard[0]?.creditCard
+  if (!card?.creditCardNumber) return null
+
+  return {
+    lastDigits: card.creditCardNumber.replace(/\D/g, '').slice(-4),
+    brand: card.creditCardBrand?.trim() || null,
+  }
 }
 
 export async function getPayment(id: string): Promise<AsaasPayment> {

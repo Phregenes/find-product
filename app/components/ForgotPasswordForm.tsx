@@ -4,6 +4,8 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { getSiteUrl } from '@/lib/site'
+import { getAuthErrorMessage } from '@/lib/auth-errors'
 import { validateEmail } from '@/lib/validation'
 
 export default function ForgotPasswordForm() {
@@ -30,12 +32,12 @@ export default function ForgotPasswordForm() {
 
     try {
       const supabase = createClient()
-      const redirectTo = `${window.location.origin}/auth/callback?next=/auth/atualizar-senha`
+      const redirectTo = `${getSiteUrl()}/auth/callback?next=/auth/atualizar-senha`
       const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, { redirectTo })
       if (error) throw error
       setSent(true)
     } catch (err) {
-      setError((err as Error).message)
+      setError(getAuthErrorMessage(err))
     } finally {
       setLoading(false)
     }
