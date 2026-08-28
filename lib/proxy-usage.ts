@@ -198,6 +198,8 @@ export async function estimateDailyProxyBytesFromMonitors(
       if (m.marketplace_mode === 'both') {
         if (m.olx_search_id) ids.push(m.olx_search_id as string)
         if (m.enjoei_search_id) ids.push(m.enjoei_search_id as string)
+      } else if (m.marketplace_mode === 'olx_enjoei') {
+        if (m.enjoei_search_id) ids.push(m.enjoei_search_id as string)
       }
       for (const sid of ids) {
         const list = searchPlans.get(sid) ?? []

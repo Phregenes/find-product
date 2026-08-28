@@ -297,7 +297,9 @@ export default function MonitorApp() {
     setResultsPage(1)
   }, [marketplaceViewFilter])
 
-  const showMarketplaceFilter = activeMonitor?.marketplace_mode === 'both'
+  const showMarketplaceFilter =
+    activeMonitor?.marketplace_mode === 'both'
+    || activeMonitor?.marketplace_mode === 'olx_enjoei'
 
   const displayedProducts = useMemo(() => {
     const list =
@@ -845,7 +847,11 @@ export default function MonitorApp() {
             <div className="flex flex-wrap items-center gap-2">
               {showMarketplaceFilter && (
                 <div className="flex items-center gap-0.5 rounded-lg border border-zinc-200 p-0.5 dark:border-zinc-700">
-                  {(['all', 'ml', 'olx', 'enjoei'] as const).map((val) => (
+                  {(
+                    activeMonitor?.marketplace_mode === 'olx_enjoei'
+                      ? (['all', 'olx', 'enjoei'] as const)
+                      : (['all', 'ml', 'olx', 'enjoei'] as const)
+                  ).map((val) => (
                     <button
                       key={val}
                       type="button"

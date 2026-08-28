@@ -82,6 +82,10 @@ export async function POST(request: NextRequest) {
       primarySearch = await resolveSearch(query, DEFAULT_SORT, condition, 'olx')
     } else if (marketplaceMode === 'enjoei') {
       primarySearch = await resolveSearch(query, DEFAULT_SORT, condition, 'enjoei')
+    } else if (marketplaceMode === 'olx_enjoei') {
+      primarySearch = await resolveSearch(query, DEFAULT_SORT, condition, 'olx')
+      const enjoeiSearch = await resolveSearch(query, DEFAULT_SORT, condition, 'enjoei')
+      enjoeiSearchId = enjoeiSearch.id
     } else {
       primarySearch = await resolveSearch(query, DEFAULT_SORT, condition, 'ml')
       const olxSearch = await resolveSearch(query, DEFAULT_SORT, condition, 'olx')

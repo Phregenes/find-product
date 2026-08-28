@@ -41,6 +41,7 @@ export async function scrapeInitialMonitorCatalog(
     mode === 'ml'
     || mode === 'olx'
     || mode === 'both'
+    || mode === 'olx_enjoei'
   const browser = needsBrowser ? await launchBrowser() : null
 
   async function addPage(marketplace: Marketplace, searchId: string): Promise<void> {
@@ -91,7 +92,7 @@ export async function scrapeInitialMonitorCatalog(
       }
     }
 
-    if (mode === 'olx') {
+    if (mode === 'olx' || mode === 'olx_enjoei') {
       try {
         await addPage('olx', monitor.search_id)
       } catch (err) {
@@ -111,7 +112,7 @@ export async function scrapeInitialMonitorCatalog(
       } catch (err) {
         errors.push(err as Error)
       }
-    } else if (mode === 'both' && monitor.enjoei_search_id) {
+    } else if ((mode === 'both' || mode === 'olx_enjoei') && monitor.enjoei_search_id) {
       try {
         await addPage('enjoei', monitor.enjoei_search_id)
       } catch (err) {

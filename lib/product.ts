@@ -25,7 +25,7 @@ export interface Product {
 export type SortBy = 'relevance' | 'recent'
 export type Condition = 'all' | 'new' | 'used'
 export type Marketplace = 'ml' | 'olx' | 'enjoei'
-export type MarketplaceMode = 'ml' | 'olx' | 'enjoei' | 'both'
+export type MarketplaceMode = 'ml' | 'olx' | 'enjoei' | 'both' | 'olx_enjoei'
 
 /** Mercado Livre lists 48 items per results page. */
 export const ML_PAGE_STEP = 48

@@ -26,6 +26,11 @@ export const MARKETPLACE_MODE_OPTIONS: Array<{
     description: 'Só anúncios do Enjoei.',
   },
   {
+    id: 'olx_enjoei',
+    label: 'OLX + Enjoei',
+    description: 'Mesma busca na OLX e no Enjoei, resultados juntos.',
+  },
+  {
     id: 'both',
     label: 'ML + OLX + Enjoei',
     description: 'Mesma busca nos três sites, resultados juntos.',
@@ -33,12 +38,19 @@ export const MARKETPLACE_MODE_OPTIONS: Array<{
 ]
 
 export function parseMarketplaceMode(value: unknown): MarketplaceMode {
-  if (value === 'olx' || value === 'enjoei' || value === 'both') return value
+  if (
+    value === 'olx'
+    || value === 'enjoei'
+    || value === 'both'
+    || value === 'olx_enjoei'
+  ) {
+    return value
+  }
   return 'ml'
 }
 
 export function marketplaceModeRequiresOlx(mode: MarketplaceMode): boolean {
-  return mode === 'olx' || mode === 'enjoei' || mode === 'both'
+  return mode === 'olx' || mode === 'enjoei' || mode === 'both' || mode === 'olx_enjoei'
 }
 
 /** Clamp to a mode the plan actually allows. */
@@ -129,6 +141,7 @@ export function normalizeProductLink(link: string): string {
 export function newProductsEmailHeadline(mode: MarketplaceMode): string {
   if (mode === 'olx') return 'Novos anúncios na OLX'
   if (mode === 'enjoei') return 'Novos anúncios no Enjoei'
+  if (mode === 'olx_enjoei') return 'Novos anúncios na OLX e Enjoei'
   if (mode === 'both') return 'Novos anúncios no ML, OLX e Enjoei'
   return 'Novos anúncios no Mercado Livre'
 }

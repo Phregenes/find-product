@@ -143,6 +143,8 @@ export function planAllowsMarketplaceMode(
       return plan.olxAccess
     case 'enjoei':
       return plan.enjoeiAccess
+    case 'olx_enjoei':
+      return plan.olxAccess && plan.enjoeiAccess
     case 'both':
       return plan.mlAccess && plan.olxAccess && plan.enjoeiAccess
   }
@@ -150,6 +152,7 @@ export function planAllowsMarketplaceMode(
 
 export function defaultMarketplaceMode(plan: PlanConfig): MarketplaceMode {
   if (planAllowsMarketplaceMode(plan, 'both')) return 'both'
+  if (planAllowsMarketplaceMode(plan, 'olx_enjoei')) return 'olx_enjoei'
   if (plan.olxAccess) return 'olx'
   if (plan.enjoeiAccess) return 'enjoei'
   if (plan.mlAccess) return 'ml'

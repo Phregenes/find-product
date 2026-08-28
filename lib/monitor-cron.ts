@@ -140,8 +140,10 @@ function searchIdsForMonitor(monitor: MonitorRow): string[] {
   const mode = monitor.marketplace_mode ?? 'ml'
   if (mode === 'olx' || mode === 'enjoei' || mode === 'ml') return [monitor.search_id]
   const ids = [monitor.search_id]
-  if (monitor.olx_search_id) ids.push(monitor.olx_search_id)
-  if (monitor.enjoei_search_id) ids.push(monitor.enjoei_search_id)
+  if (mode === 'both' && monitor.olx_search_id) ids.push(monitor.olx_search_id)
+  if ((mode === 'both' || mode === 'olx_enjoei') && monitor.enjoei_search_id) {
+    ids.push(monitor.enjoei_search_id)
+  }
   return ids
 }
 
@@ -152,9 +154,11 @@ function mergeProductsForMonitor(
   const mode = monitor.marketplace_mode
   const ids: string[] = []
   if (mode === 'ml' || mode === 'both') ids.push(monitor.search_id)
-  if (mode === 'olx' || mode === 'enjoei') ids.push(monitor.search_id)
+  if (mode === 'olx' || mode === 'enjoei' || mode === 'olx_enjoei') ids.push(monitor.search_id)
   if (mode === 'both' && monitor.olx_search_id) ids.push(monitor.olx_search_id)
-  if (mode === 'both' && monitor.enjoei_search_id) ids.push(monitor.enjoei_search_id)
+  if ((mode === 'both' || mode === 'olx_enjoei') && monitor.enjoei_search_id) {
+    ids.push(monitor.enjoei_search_id)
+  }
 
   const seen = new Set<string>()
   const merged: Product[] = []
