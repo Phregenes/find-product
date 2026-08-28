@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { PAID_PLAN_IDS, type PaidPlanId } from '@/lib/plans'
-import { getUserIdFromSession } from '@/lib/plans-server'
+import { getUserIdFromSession, getUserPlan } from '@/lib/plans-server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   clientIpFromRequest,
@@ -50,6 +50,11 @@ export async function POST(request: NextRequest) {
 
   if (!planId || !PAID_PLAN_IDS.includes(planId)) {
     return Response.json({ error: 'Plano inválido' }, { status: 400 })
+  }
+
+  const currentPlan = await getUserPlan(userId)
+  if (currentPlan.id === planId) {
+    return Response.json({ error: 'Você já está neste plano.' }, { status: 400 })
   }
 
   if (cpfCnpj.length !== 11 && cpfCnpj.length !== 14) {

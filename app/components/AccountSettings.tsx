@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { getPlanConfig, type PlanId } from '@/lib/plans'
+import { getPlanConfig, formatPlanPrice, type PlanId } from '@/lib/plans'
 
 interface Profile {
   email: string | null
@@ -148,13 +148,26 @@ export default function AccountSettings() {
                 </div>
 
                 {plan && (
-                  <p className="text-xs text-zinc-400">
-                    Plano atual: <strong className="text-zinc-600 dark:text-zinc-300">{plan.name}</strong>
-                    {' · '}
-                    <Link href="/planos" className="text-yellow-600 hover:underline dark:text-yellow-400">
-                      Ver planos
+                  <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 dark:border-green-900/40 dark:bg-green-950/20">
+                    <p className="text-xs font-medium uppercase tracking-wide text-green-700 dark:text-green-400">
+                      Plano ativo
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-green-900 dark:text-green-100">
+                      {plan.name}
+                      {plan.priceMonthly > 0 && (
+                        <span className="font-normal text-green-800 dark:text-green-300">
+                          {' '}
+                          · {formatPlanPrice(plan)}
+                        </span>
+                      )}
+                    </p>
+                    <Link
+                      href="/planos"
+                      className="mt-2 inline-block text-xs text-yellow-700 hover:underline dark:text-yellow-400"
+                    >
+                      Ver ou trocar de plano
                     </Link>
-                  </p>
+                  </div>
                 )}
 
                 {error && (
@@ -183,6 +196,7 @@ export default function AccountSettings() {
               <h2 className="text-base font-semibold text-red-700 dark:text-red-400">Excluir conta</h2>
               <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
                 Isso remove permanentemente sua conta, monitores e histórico de produtos vistos.
+                Se você tiver assinatura paga, ela será cancelada no Asaas e não haverá novas cobranças.
                 Buscas compartilhadas com outros usuários permanecem no sistema.
               </p>
 

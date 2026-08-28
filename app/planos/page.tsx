@@ -3,9 +3,12 @@ import SiteHeader from '@/app/components/SiteHeader'
 import SiteFooter from '@/app/components/SiteFooter'
 import PlanCard from '@/app/components/PlanCard'
 import { TestimonialStrip, FaqList } from '@/app/components/Testimonials'
-import { PLAN_LIST } from '@/lib/plans'
+import { PLAN_LIST, formatPlanPrice } from '@/lib/plans'
+import { getSessionPlan } from '@/lib/plans-server'
 import { HOME_FAQ } from '@/lib/marketing'
 import { SITE_DESCRIPTION, SITE_NAME } from '@/lib/site'
+
+export const dynamic = 'force-dynamic'
 
 export const metadata = {
   title: 'Planos e preços',
@@ -28,7 +31,9 @@ const PRICING_FAQ = [
   },
 ] as const
 
-export default function PlanosPage() {
+export default async function PlanosPage() {
+  const session = await getSessionPlan()
+
   return (
     <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
       <SiteHeader />
@@ -45,12 +50,25 @@ export default function PlanosPage() {
             Grátis é OLX, um monitor, a cada 3 dias. Enjoei e e-mail no Garimpo. Três buscas por dia
             no Lojista. Mercado Livre — e os três sites juntos — só no Pro.
           </p>
+          {session && (
+            <p className="mx-auto mt-6 max-w-xl rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-center text-sm text-green-900 dark:border-green-900/40 dark:bg-green-950/30 dark:text-green-200">
+              Seu plano atual: <strong>{session.plan.name}</strong>
+              {session.plan.priceMonthly > 0 && (
+                <> · {formatPlanPrice(session.plan)}</>
+              )}
+            </p>
+          )}
         </section>
 
         <section className="mx-auto mt-12 max-w-6xl px-4 sm:px-6">
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {PLAN_LIST.map((plan) => (
-              <PlanCard key={plan.id} plan={plan} highlighted={plan.id === 'lojista'} />
+              <PlanCard
+                key={plan.id}
+                plan={plan}
+                highlighted={plan.id === 'lojista' && plan.id !== session?.plan.id}
+                currentPlanId={session?.plan.id}
+              />
             ))}
           </div>
         </section>

@@ -6,6 +6,7 @@ import {
   cancelSubscription,
   getSubscription,
   isActiveSubscriptionStatus,
+  isAsaasConfigured,
   isInactiveSubscriptionStatus,
   isPaidPaymentStatus,
   parseBillingReference,
@@ -63,11 +64,6 @@ export async function applyPaymentToProfile(
   return { updated: true, userId: parsed.userId, planId: parsed.planId }
 }
 
-export async function syncSubscriptionById(id: string): Promise<void> {
-  const subscription = await getSubscription(id)
-  await applySubscriptionToProfile(subscription)
-}
-
 export async function replaceUserSubscription(
   userId: string,
   subscriptionId: string,
@@ -104,4 +100,45 @@ export async function replaceUserSubscription(
       asaas_subscription_status: status,
     })
     .eq('id', userId)
+}
+
+function isBenignCancelError(err: unknown): boolean {
+  const msg = (err as Error).message.toLowerCase()
+  return (
+    msg.includes('não encontrad')
+    || msg.includes('not found')
+    || msg.includes('inativ')
+    || msg.includes('inactive')
+    || msg.includes('deleted')
+  )
+}
+
+/** Cancela assinatura Asaas do usuário antes de excluir a conta. */
+export async function cancelUserBilling(userId: string): Promise<void> {
+  if (!isAsaasConfigured()) return
+
+  const admin = createAdminClient()
+  const { data, error } = await admin
+    .from('profiles')
+    .select('asaas_subscription_id')
+    .eq('id', userId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+
+  const subscriptionId = data?.asaas_subscription_id as string | null
+  if (!subscriptionId) return
+
+  try {
+    await cancelSubscription(subscriptionId)
+    console.info('[billing] assinatura cancelada na exclusão de conta', { userId, subscriptionId })
+  } catch (err) {
+    if (isBenignCancelError(err)) return
+    throw err
+  }
+}
+
+export async function syncSubscriptionById(id: string): Promise<void> {
+  const subscription = await getSubscription(id)
+  await applySubscriptionToProfile(subscription)
 }

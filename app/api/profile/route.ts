@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { cancelUserBilling } from '@/lib/billing'
 
 export const dynamic = 'force-dynamic'
 
@@ -51,6 +52,19 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE() {
   const userId = await getUserId()
   if (!userId) return Response.json({ error: 'Não autenticado' }, { status: 401 })
+
+  try {
+    await cancelUserBilling(userId)
+  } catch (err) {
+    console.error('[profile/delete] cancel billing', (err as Error).message)
+    return Response.json(
+      {
+        error:
+          'Não foi possível cancelar a assinatura no Asaas. Tente de novo ou fale conosco antes de excluir a conta.',
+      },
+      { status: 502 },
+    )
+  }
 
   const admin = createAdminClient()
   const { error } = await admin.auth.admin.deleteUser(userId)

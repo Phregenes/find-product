@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import {
   type PlanConfig,
+  type PlanId,
   formatPlanPrice,
   formatPlanFrequency,
   formatPlanMarketplaces,
@@ -12,21 +13,31 @@ import { buildPlanWhatsAppUrl } from '@/lib/whatsapp'
 export default function PlanCard({
   plan,
   highlighted = false,
+  currentPlanId,
 }: {
   plan: PlanConfig
   highlighted?: boolean
+  currentPlanId?: PlanId
 }) {
   const paid = isPaidPlan(plan.id)
+  const isCurrent = currentPlanId === plan.id
 
   return (
     <div
       className={`relative flex flex-col rounded-2xl border p-6 ${
-        highlighted
-          ? 'border-yellow-400 bg-yellow-50/50 shadow-lg shadow-yellow-400/10 dark:border-yellow-500/50 dark:bg-yellow-950/20'
-          : 'border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900'
+        isCurrent
+          ? 'border-green-400 bg-green-50/40 ring-2 ring-green-400/30 dark:border-green-600/60 dark:bg-green-950/20'
+          : highlighted
+            ? 'border-yellow-400 bg-yellow-50/50 shadow-lg shadow-yellow-400/10 dark:border-yellow-500/50 dark:bg-yellow-950/20'
+            : 'border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900'
       }`}
     >
-      {highlighted && (
+      {isCurrent && (
+        <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-green-500 px-3 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">
+          Plano atual
+        </span>
+      )}
+      {highlighted && !isCurrent && (
         <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-yellow-400 px-3 py-0.5 text-[11px] font-bold uppercase tracking-wide text-zinc-900">
           Recomendado
         </span>
@@ -108,26 +119,41 @@ export default function PlanCard({
 
       {paid ? (
         <div className="flex flex-col gap-2">
-          <Link
-            href={`/assinar?plan=${plan.id}`}
-            className={`flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
-              highlighted
-                ? 'bg-yellow-400 text-zinc-900 hover:bg-yellow-300'
-                : 'border border-zinc-200 bg-zinc-50 text-zinc-900 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700'
-            }`}
-          >
-            Assinar com cartão
-          </Link>
-          <a
-            href={buildPlanWhatsAppUrl(plan)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center gap-2 text-xs font-medium text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-          >
-            <WhatsAppIcon />
-            Ou falar no WhatsApp
-          </a>
+          {isCurrent ? (
+            <span className="flex items-center justify-center rounded-xl border border-green-300 bg-green-100 px-4 py-2.5 text-sm font-semibold text-green-800 dark:border-green-800 dark:bg-green-950/40 dark:text-green-200">
+              Você já está neste plano
+            </span>
+          ) : (
+            <>
+              <Link
+                href={`/assinar?plan=${plan.id}`}
+                className={`flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+                  highlighted
+                    ? 'bg-yellow-400 text-zinc-900 hover:bg-yellow-300'
+                    : 'border border-zinc-200 bg-zinc-50 text-zinc-900 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:hover:bg-zinc-700'
+                }`}
+              >
+                Assinar com cartão
+              </Link>
+              <a
+                href={buildPlanWhatsAppUrl(plan)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 text-xs font-medium text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+              >
+                <WhatsAppIcon />
+                Ou falar no WhatsApp
+              </a>
+            </>
+          )}
         </div>
+      ) : isCurrent ? (
+        <Link
+          href="/app"
+          className="flex items-center justify-center rounded-xl border border-green-300 bg-green-100 px-4 py-2.5 text-sm font-semibold text-green-800 transition hover:bg-green-200/80 dark:border-green-800 dark:bg-green-950/40 dark:text-green-200 dark:hover:bg-green-950/60"
+        >
+          Ir para o app
+        </Link>
       ) : (
         <Link
           href="/register"

@@ -3,7 +3,7 @@ import Link from 'next/link'
 import SiteHeader from '@/app/components/SiteHeader'
 import SiteFooter from '@/app/components/SiteFooter'
 import CheckoutForm from '@/app/components/CheckoutForm'
-import { getUserIdFromSession } from '@/lib/plans-server'
+import { getUserIdFromSession, getUserPlan } from '@/lib/plans-server'
 import { PAID_PLAN_IDS, PLANS, type PaidPlanId, formatPlanPrice, formatPlanMarketplaces } from '@/lib/plans'
 
 export const dynamic = 'force-dynamic'
@@ -23,6 +23,11 @@ export default async function AssinarPage({
   }
 
   if (!planId || !PAID_PLAN_IDS.includes(planId)) {
+    redirect('/planos')
+  }
+
+  const currentPlan = await getUserPlan(userId)
+  if (currentPlan.id === planId) {
     redirect('/planos')
   }
 
