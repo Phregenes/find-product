@@ -21,6 +21,9 @@ export function getAuthErrorMessage(err: unknown): string {
   ) {
     return 'O e-mail de confirmação não pôde ser enviado. Tente de novo em alguns segundos.'
   }
+  if (m.includes('otp_expired') || m.includes('email link is invalid')) {
+    return 'Este link expirou ou já foi usado. Solicite um novo em Esqueceu a senha?'
+  }
   if (m.includes('invalid login credentials')) return 'E-mail ou senha incorretos.'
   if (m.includes('user already registered')) return 'Este e-mail já está cadastrado.'
   if (m.includes('email not confirmed')) return 'Confirme seu e-mail antes de entrar.'
