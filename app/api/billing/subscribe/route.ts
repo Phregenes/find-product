@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
   if (!isAsaasConfigured()) {
     return Response.json(
       {
-        error: 'Asaas ainda não configurado. Reinicie o servidor Next depois de salvar ASAAS_API_KEY no .env.local.',
+        error: 'Asaas ainda não configurado. Defina ASAAS_API_KEY e reinicie o servidor.',
       },
       { status: 503 },
     )

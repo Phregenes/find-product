@@ -44,6 +44,7 @@ export default function AccountSettings() {
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
+    if (!nameDirty || saving) return
     setSaving(true)
     setError(null)
     setSuccess(null)
@@ -57,6 +58,7 @@ export default function AccountSettings() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Erro ao salvar')
       setProfile(data.profile)
+      setDisplayName(data.profile.display_name ?? '')
       setSuccess('Nome atualizado.')
     } catch (err) {
       setError((err as Error).message)
@@ -89,6 +91,8 @@ export default function AccountSettings() {
     }
   }
 
+  const savedName = profile?.display_name ?? ''
+  const nameDirty = displayName.trim() !== savedName.trim()
   const plan = profile ? getPlanConfig(profile.plan) : null
 
   return (
@@ -120,7 +124,7 @@ export default function AccountSettings() {
                 Atualize como você aparece no app.
               </p>
 
-              <form onSubmit={handleSave} className="mt-5 flex flex-col gap-4">
+              <div className="mt-5 flex flex-col gap-4">
                 <div className="flex flex-col gap-1.5">
                   <label htmlFor="email" className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
                     E-mail
@@ -134,20 +138,43 @@ export default function AccountSettings() {
                   />
                 </div>
 
-                <div className="flex flex-col gap-1.5">
+                <form onSubmit={handleSave} className="flex flex-col gap-2">
                   <label htmlFor="display_name" className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
                     Nome
                   </label>
-                  <input
-                    id="display_name"
-                    type="text"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="Como quer ser chamado"
-                    maxLength={80}
-                    className="form-input"
-                  />
-                </div>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <input
+                      id="display_name"
+                      type="text"
+                      value={displayName}
+                      onChange={(e) => {
+                        setDisplayName(e.target.value)
+                        if (success) setSuccess(null)
+                        if (error) setError(null)
+                      }}
+                      placeholder="Como quer ser chamado"
+                      maxLength={80}
+                      className="form-input sm:flex-1"
+                    />
+                    <button
+                      type="submit"
+                      disabled={saving || !nameDirty}
+                      className="rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-semibold text-zinc-900 transition hover:bg-yellow-300 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {saving ? 'Salvando...' : 'Salvar nome'}
+                    </button>
+                  </div>
+                  {error && (
+                    <div className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/30 dark:bg-red-950/20 dark:text-red-400">
+                      {error}
+                    </div>
+                  )}
+                  {success && (
+                    <div className="rounded-xl border border-green-100 bg-green-50 px-3 py-2 text-xs text-green-700 dark:border-green-900/30 dark:bg-green-950/20 dark:text-green-400">
+                      {success}
+                    </div>
+                  )}
+                </form>
 
                 {plan && (
                   <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 dark:border-green-900/40 dark:bg-green-950/20">
@@ -185,26 +212,7 @@ export default function AccountSettings() {
                     </div>
                   </div>
                 )}
-
-                {error && (
-                  <div className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/30 dark:bg-red-950/20 dark:text-red-400">
-                    {error}
-                  </div>
-                )}
-                {success && (
-                  <div className="rounded-xl border border-green-100 bg-green-50 px-3 py-2 text-xs text-green-700 dark:border-green-900/30 dark:bg-green-950/20 dark:text-green-400">
-                    {success}
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="self-start rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-semibold text-zinc-900 transition hover:bg-yellow-300 disabled:opacity-50"
-                >
-                  {saving ? 'Salvando...' : 'Salvar nome'}
-                </button>
-              </form>
+              </div>
             </section>
 
             {/* Danger zone */}

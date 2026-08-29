@@ -5,24 +5,46 @@ import { PAID_PLAN_IDS, PLANS, type PaidPlanId } from '@/lib/plans'
 const PRODUCTION_BASE = 'https://api.asaas.com'
 const SANDBOX_BASE = 'https://api-sandbox.asaas.com'
 
-export function isAsaasConfigured(): boolean {
-  return Boolean(readApiKey())
+/**
+ * Sandbox only on the local machine. Vercel (production and preview) always
+ * uses live Asaas. Override with ASAAS_SANDBOX=true|false if needed.
+ */
+export function isAsaasSandbox(): boolean {
+  const flag = process.env.ASAAS_SANDBOX?.trim().toLowerCase()
+  if (flag === 'true' || flag === '1') return true
+  if (flag === 'false' || flag === '0') return false
+  if (process.env.VERCEL) return false
+  return true
 }
 
-function readApiKey(): string | null {
-  let key =
-    process.env.ASAAS_API_KEY?.trim()
-    || process.env.asaas_api_key?.trim()
-    || ''
-  if (!key) return null
+function normalizeApiKey(raw: string): string {
+  let key = raw.trim()
   // Next.js interpolates unescaped `$` in .env.local; if only the dollar was lost, restore it.
   if (key.startsWith('aact_')) key = `$${key}`
   return key
 }
 
+function readApiKey(): string | null {
+  const raw = process.env.ASAAS_API_KEY?.trim() || ''
+  if (!raw) return null
+  return normalizeApiKey(raw)
+}
+
+export function isAsaasConfigured(): boolean {
+  return Boolean(readApiKey())
+}
+
 function apiKey(): string {
   const key = readApiKey()
-  if (!key) throw new Error('ASAAS_API_KEY não configurado')
+  if (!key) {
+    throw new Error('ASAAS_API_KEY não configurado')
+  }
+  if (isAsaasSandbox() && key.startsWith('$aact_prod_')) {
+    throw new Error('Localhost deve usar a chave sandbox do Asaas ($aact_hmlg_) no .env.local.')
+  }
+  if (!isAsaasSandbox() && key.startsWith('$aact_hmlg_')) {
+    throw new Error('Em produção, ASAAS_API_KEY precisa ser a chave live ($aact_prod_), não a de sandbox.')
+  }
   return key
 }
 
@@ -30,11 +52,7 @@ function apiBase(): string {
   if (process.env.ASAAS_API_URL?.trim()) {
     return process.env.ASAAS_API_URL.trim().replace(/\/$/, '')
   }
-  const key = readApiKey() ?? ''
-  if (process.env.ASAAS_SANDBOX === 'false' || key.startsWith('$aact_prod_')) {
-    return PRODUCTION_BASE
-  }
-  return SANDBOX_BASE
+  return isAsaasSandbox() ? SANDBOX_BASE : PRODUCTION_BASE
 }
 
 function formatAsaasError(body: unknown, status: number): string {

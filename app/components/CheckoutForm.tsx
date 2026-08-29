@@ -18,7 +18,13 @@ import {
 const inputClass =
   'mt-1.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-yellow-400 focus:ring-2 focus:ring-yellow-400/30 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white'
 
-export default function CheckoutForm({ planId }: { planId: PaidPlanId }) {
+export default function CheckoutForm({
+  planId,
+  sandbox = false,
+}: {
+  planId: PaidPlanId
+  sandbox?: boolean
+}) {
   const plan = PLANS[planId]
   const [holderName, setHolderName] = useState('')
   const [cardNumber, setCardNumber] = useState('')
@@ -84,6 +90,11 @@ export default function CheckoutForm({ planId }: { planId: PaidPlanId }) {
 
   return (
     <div className="space-y-4">
+      {sandbox && (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+          Ambiente de teste (sandbox). No site publicado a cobrança vai para o Asaas de produção.
+        </p>
+      )}
       {error && (
         <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}

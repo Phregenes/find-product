@@ -3,6 +3,7 @@ import Link from 'next/link'
 import SiteHeader from '@/app/components/SiteHeader'
 import SiteFooter from '@/app/components/SiteFooter'
 import CheckoutForm from '@/app/components/CheckoutForm'
+import { isAsaasSandbox } from '@/lib/asaas'
 import { getUserIdFromSession, getUserPlan } from '@/lib/plans-server'
 import {
   PAID_PLAN_IDS,
@@ -60,7 +61,7 @@ export default async function AssinarPage({
           {formatPlanPrice(plan)} · {formatPlanMarketplaces(plan)}
         </p>
         <div className="mt-8 rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-          <CheckoutForm planId={planId} />
+          <CheckoutForm planId={planId} sandbox={isAsaasSandbox()} />
         </div>
         <p className="mt-6 text-center text-xs text-zinc-400">
           <Link href="/planos" className="hover:text-zinc-700 dark:hover:text-zinc-200">
