@@ -126,6 +126,7 @@ export interface AsaasPayment {
   billingType?: string
   dateCreated?: string
   dueDate?: string
+  deleted?: boolean
   creditCard?: {
     creditCardNumber?: string
     creditCardBrand?: string
@@ -198,7 +199,7 @@ export async function createMonthlySubscription(input: {
   
     return `${value('year')}-${value('month')}-${value('day')}`
   }
-  
+
   const today = todayInSaoPaulo()
 
   // Transparent card checkout redirects on our side (/assinar/ok).
@@ -362,8 +363,30 @@ export function isInactiveSubscriptionStatus(status?: string): boolean {
   return s === 'INACTIVE' || s === 'EXPIRED' || s === 'DELETED'
 }
 
+/** Eventos Asaas em que o pagamento não caiu (ou o acesso pago deve cair). */
+export const PAYMENT_FAIL_EVENTS = new Set([
+  'PAYMENT_OVERDUE',
+  'PAYMENT_CREDIT_CARD_CAPTURE_REFUSED',
+  'PAYMENT_REPROVED_BY_RISK_ANALYSIS',
+  'PAYMENT_DELETED',
+  'PAYMENT_REFUNDED',
+  'PAYMENT_PARTIALLY_REFUNDED',
+  'PAYMENT_REFUND_IN_PROGRESS',
+  'PAYMENT_RECEIVED_IN_CASH_UNDONE',
+  'PAYMENT_CHARGEBACK_REQUESTED',
+  'PAYMENT_CHARGEBACK_DISPUTE',
+])
+
+export const PAYMENT_OK_EVENTS = new Set([
+  'PAYMENT_RECEIVED',
+  'PAYMENT_CONFIRMED',
+  'PAYMENT_ANTICIPATED',
+  'PAYMENT_APPROVED_BY_RISK_ANALYSIS',
+])
+
 /** Status de cobrança que devem tirar o acesso pago. */
-export function isFailedPaymentStatus(status?: string): boolean {
+export function isFailedPaymentStatus(status?: string, deleted?: boolean): boolean {
+  if (deleted) return true
   const s = (status ?? '').toUpperCase()
   return (
     s === 'OVERDUE'
@@ -371,7 +394,13 @@ export function isFailedPaymentStatus(status?: string): boolean {
     || s === 'CHARGEBACK_REQUESTED'
     || s === 'CHARGEBACK_DISPUTE'
     || s === 'REFUND_REQUESTED'
+    || s === 'REFUND_IN_PROGRESS'
+    || s === 'DELETED'
   )
+}
+
+export function isPaymentFailEvent(event?: string): boolean {
+  return Boolean(event && PAYMENT_FAIL_EVENTS.has(event))
 }
 
 export function webhookToken(): string | null {

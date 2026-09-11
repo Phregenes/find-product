@@ -10,6 +10,7 @@ import {
   isFailedPaymentStatus,
   isInactiveSubscriptionStatus,
   isPaidPaymentStatus,
+  isPaymentFailEvent,
   parseBillingReference,
   type AsaasPayment,
   type AsaasSubscription,
@@ -58,30 +59,46 @@ export async function applyPaymentToProfile(
 ): Promise<{ updated: boolean; userId?: string; planId?: PaidPlanId }> {
   const ref = payment.externalReference || subscription?.externalReference
   const parsed = parseBillingReference(ref)
-  if (!parsed) {
-    console.warn('[billing] pagamento sem externalReference reconhecível', payment.id, ref)
-    return { updated: false }
-  }
 
   if (!isPaidPaymentStatus(payment.status)) {
-    return { updated: false, userId: parsed.userId, planId: parsed.planId }
+    return { updated: false, userId: parsed?.userId, planId: parsed?.planId }
   }
 
   const admin = createAdminClient()
-  const { error } = await admin
-    .from('profiles')
-    .update({
-      plan: parsed.planId,
-      ...(payment.subscription ? { asaas_subscription_id: payment.subscription } : {}),
-      asaas_subscription_status: payment.status ?? 'PAID',
-    })
-    .eq('id', parsed.userId)
-
-  if (error) {
-    throw new Error(error.message)
+  const patch = {
+    ...(parsed ? { plan: parsed.planId } : {}),
+    ...(payment.subscription ? { asaas_subscription_id: payment.subscription } : {}),
+    asaas_subscription_status: payment.status ?? 'PAID',
   }
 
-  return { updated: true, userId: parsed.userId, planId: parsed.planId }
+  if (parsed) {
+    const { error } = await admin.from('profiles').update(patch).eq('id', parsed.userId)
+    if (error) throw new Error(error.message)
+    return { updated: true, userId: parsed.userId, planId: parsed.planId }
+  }
+
+  if (payment.subscription) {
+    const { data, error } = await admin
+      .from('profiles')
+      .update({
+        asaas_subscription_id: payment.subscription,
+        asaas_subscription_status: payment.status ?? 'PAID',
+      })
+      .eq('asaas_subscription_id', payment.subscription)
+      .select('id, plan')
+      .maybeSingle()
+    if (error) throw new Error(error.message)
+    if (data?.id) {
+      console.warn(
+        '[billing] pagamento pago sem externalReference — status atualizado, plano não alterado',
+        payment.id,
+      )
+      return { updated: true, userId: data.id as string }
+    }
+  }
+
+  console.warn('[billing] pagamento sem externalReference reconhecível', payment.id, ref)
+  return { updated: false }
 }
 
 /**
@@ -95,9 +112,10 @@ export async function downgradeForFailedPayment(
 ): Promise<{ updated: boolean; userId?: string }> {
   const ref = payment.externalReference || subscription?.externalReference
   const parsed = parseBillingReference(ref)
-  const status = (eventStatus || payment.status || 'FAILED').toUpperCase()
+  const failed =
+    isFailedPaymentStatus(payment.status, payment.deleted) || isPaymentFailEvent(eventStatus)
 
-  if (!isFailedPaymentStatus(payment.status) && !eventStatus) {
+  if (!failed) {
     return { updated: false, userId: parsed?.userId }
   }
 
@@ -105,7 +123,7 @@ export async function downgradeForFailedPayment(
   const patch = {
     plan: 'free' as const,
     ...(payment.subscription ? { asaas_subscription_id: payment.subscription } : {}),
-    asaas_subscription_status: status,
+    asaas_subscription_status: (payment.status || eventStatus || 'FAILED').toUpperCase(),
   }
 
   if (parsed) {
