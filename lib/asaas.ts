@@ -184,7 +184,22 @@ export async function createMonthlySubscription(input: {
   remoteIp: string
 }): Promise<AsaasSubscription> {
   const plan = PLANS[input.planId]
-  const today = new Date().toISOString().slice(0, 10)
+
+  function todayInSaoPaulo(): string {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date())
+  
+    const value = (type: string) =>
+      parts.find((part) => part.type === type)?.value
+  
+    return `${value('year')}-${value('month')}-${value('day')}`
+  }
+  
+  const today = todayInSaoPaulo()
 
   // Transparent card checkout redirects on our side (/assinar/ok).
   // Do not send callback.successUrl — Asaas rejects URLs whose domain
